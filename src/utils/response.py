@@ -1,15 +1,50 @@
 
 from sdks.novavision.src.helper.package import PackageHelper
-from components.Package.src.models.PackageModel import PackageModel, PackageConfigs, ConfigExecutor, PackageOutputs, PackageResponse, PackageExecutor, OutputImage
+
+from capsules.HoughTransform.src.models.PackageModel import (
+    PackageModel,
+    HoughConfigs,
+    ConfigExecutor,
+    PackageExecutor,
+    PackageResponse,
+    PackageOutputs,
+    OutputImage,
+    OutputDetections,
+)
 
 
 def build_response(context):
-    outputImage = OutputImage(value=context.image)
-    Outputs = PackageOutputs(outputImage=outputImage)
-    packageResponse = PackageResponse(outputs=Outputs)
-    packageExecutor = PackageExecutor(value=packageResponse)
-    executor = ConfigExecutor(value=packageExecutor)
-    packageConfigs = PackageConfigs(executor=executor)
-    package = PackageHelper(packageModel=PackageModel, packageConfigs=packageConfigs)
-    packageModel = package.build_model(context)
-    return packageModel
+    output_image = OutputImage(value=context.image)
+    output_detections = OutputDetections(value=context.detect)
+
+    outputs = PackageOutputs(
+        outputImage=output_image,
+        outputDetections=output_detections,
+    )
+
+    response = PackageResponse(outputs=outputs)
+    package_executor = PackageExecutor(value=response)
+    executor = ConfigExecutor(value=package_executor)
+
+    configs = HoughConfigs(
+        executor=executor,
+        task=context.request.get_param("Task"),
+        cannyLow=context.request.get_param("CannyLow"),
+        cannyHigh=context.request.get_param("CannyHigh"),
+        houghThreshold=context.request.get_param("HoughThreshold"),
+        minLineLength=context.request.get_param("MinLineLength"),
+        maxLineGap=context.request.get_param("MaxLineGap"),
+        dp=context.request.get_param("DP"),
+        minDist=context.request.get_param("MinDist"),
+        param1=context.request.get_param("Param1"),
+        param2=context.request.get_param("Param2"),
+        minRadius=context.request.get_param("MinRadius"),
+        maxRadius=context.request.get_param("MaxRadius"),
+    )
+
+    package = PackageHelper(
+        packageModel=PackageModel,
+        packageConfigs=configs,
+    )
+
+    return package.build_model(context)
