@@ -11,14 +11,8 @@ from sdks.novavision.src.media.image import Image
 from sdks.novavision.src.base.capsule import Capsule
 from sdks.novavision.src.base.model import BoundingBox
 
-if __package__ and __package__.startswith("capsules."):
-    # Do not catch ModuleNotFoundError here: a missing SDK dependency must
-    # remain visible instead of being mistaken for a local-import fallback.
-    from capsules.HoughTransform.src.models.PackageModel import Detection, PackageModel
-    from capsules.HoughTransform.src.utils.response import build_response
-else:
-    from src.models.PackageModel import Detection, PackageModel
-    from src.utils.response import build_response
+from capsules.HoughTransform.src.models.PackageModel import Detection, PackageModel
+from capsules.HoughTransform.src.utils.response import build_response
 
 
 class HoughTransform(Capsule):

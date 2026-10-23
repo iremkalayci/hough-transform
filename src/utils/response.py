@@ -1,33 +1,18 @@
 from sdks.novavision.src.helper.package import PackageHelper
 
-if __package__ and __package__.startswith("capsules."):
-    from capsules.HoughTransform.src.models.PackageModel import (
-        CircleDetectionExecutor as CircleDetectionExecutorModel,
-        CircleDetectionOutputs,
-        CircleDetectionResponse,
-        ConfigExecutor,
-        LineDetectionExecutor as LineDetectionExecutorModel,
-        LineDetectionOutputs,
-        LineDetectionResponse,
-        OutputDetections,
-        OutputImage,
-        PackageConfigs,
-        PackageModel,
-    )
-else:
-    from src.models.PackageModel import (
-        CircleDetectionExecutor as CircleDetectionExecutorModel,
-        CircleDetectionOutputs,
-        CircleDetectionResponse,
-        ConfigExecutor,
-        LineDetectionExecutor as LineDetectionExecutorModel,
-        LineDetectionOutputs,
-        LineDetectionResponse,
-        OutputDetections,
-        OutputImage,
-        PackageConfigs,
-        PackageModel,
-    )
+from capsules.HoughTransform.src.models.PackageModel import (
+    CircleDetectionExecutor as CircleDetectionExecutorModel,
+    CircleDetectionOutputs,
+    CircleDetectionResponse,
+    ConfigExecutor,
+    LineDetectionExecutor as LineDetectionExecutorModel,
+    LineDetectionOutputs,
+    LineDetectionResponse,
+    OutputDetections,
+    OutputImage,
+    PackageConfigs,
+    PackageModel,
+)
 
 
 def _build_response(context, executor_model, response_model, outputs_model):

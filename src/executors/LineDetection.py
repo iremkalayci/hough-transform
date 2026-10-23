@@ -4,11 +4,7 @@ import sys
 sys.path.append(os.path.join(os.path.dirname(__file__), "../../../../"))
 
 from sdks.novavision.src.helper.executor import Executor
-
-if __package__ and __package__.startswith("capsules."):
-    from capsules.HoughTransform.src.executors.HoughTransform import HoughTransform
-else:
-    from src.executors.HoughTransform import HoughTransform
+from capsules.HoughTransform.src.executors.HoughTransform import HoughTransform
 
 
 class LineDetection(HoughTransform):
