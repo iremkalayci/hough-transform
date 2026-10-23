@@ -1,75 +1,37 @@
-# [Package Name]
+# Hough Transform
 
-> One-sentence summary of what this package does (e.g., "Rotates an image by a specified angle.")
+NovaVision capsule for detecting line segments with OpenCV `cv2.HoughLinesP()` or circles with `cv2.HoughCircles()`. Connect an image input, choose a task, and read the annotated image and detections outputs.
 
-**Category:** Utility / Capsule / Classical Computer Vision / Preprocessing / Auxiliary / Sources / Widget
+## Inputs and outputs
 
-**Status:** Stable / Beta / Experimental
+| Name | Description |
+|---|---|
+| `inputImage` | One image object (grayscale, BGR, or BGRA; `uint8`) |
+| `outputImage` | Input image annotated with the detected lines or circles |
+| `outputDetections` | List of detections with `classId`, `classLabel`, `bbox`, and task-specific `geometry` |
 
-**Last Updated:** DD.MM.YYYY
+Line detections include endpoints (`x1`, `y1`, `x2`, `y2`); circle detections include center (`centerX`, `centerY`) and `radius`. Bounding boxes use `[xMin, yMin, xMax, yMax]` pixel coordinates.
 
----
+## Configuration
 
-## 1. Overview
+`Task` is a dropdown with `LineDetection` and `CircleDetection`. All numeric parameters are available in the request configuration; only the selected task's parameters are used.
 
-Describe in 2–3 sentences/paragraphs what this package does, what problem it solves, and typical use cases. Mention when a user should choose this package over a similar one, if relevant.
+| Parameter | Used by | Default | Meaning |
+|---|---|---:|---|
+| `CannyLow` | Lines | 50 | Lower Canny edge threshold (0–255) |
+| `CannyHigh` | Lines | 150 | Upper Canny edge threshold (1–255; must exceed `CannyLow`) |
+| `HoughThreshold` | Lines | 50 | Minimum Hough votes |
+| `MinLineLength` | Lines | 50 | Minimum accepted segment length in pixels |
+| `MaxLineGap` | Lines | 10 | Maximum gap between joined segment points |
+| `DP` | Circles | 1.2 | Inverse accumulator resolution ratio |
+| `MinDist` | Circles | 20 | Minimum center-to-center distance in pixels |
+| `Param1` | Circles | 100 | Upper Canny threshold used by the circle detector |
+| `Param2` | Circles | 30 | Circle accumulator threshold; lower values detect more candidates |
+| `MinRadius` | Circles | 0 | Minimum radius; zero leaves the lower bound unspecified |
+| `MaxRadius` | Circles | 0 | Maximum radius; zero leaves the upper bound unspecified |
 
-**Typical use cases:**
+The capsule validates that images are non-empty `uint8` arrays and that the parameters are in valid ranges before calling OpenCV.
 
-- [Use case 1]
-- [Use case 2]
-- [Use case 3]
+## Development checks
 
----
-
-## 2. Inputs
-
-| Field Name | Kind/Type | Required | Default | Description |
-|---|---|---|---|---|
-| `[inputFieldName]` | `[Image / string / number / list / object ...]` | Yes/No | `[default or —]` | [What this input represents] |
-
-> Derived from the package `Inputs` / `Input` classes. A field that accepts a single object or a list is shown explicitly.
-
----
-
-## 3. Configuration Parameters
-
-| Parameter | Type | Field Type (UI control) | Allowed Values / Range | Default | Description |
-|---|---|---|---|---|---|
-| `[ParamName]` | `[number/bool/string/object]` | `[textInput/dropdownlist/...]` | `[range or options]` | `[default]` | [What this parameter controls, and how it affects behavior] |
-
-> Derived from the package `Configs` classes, including validation bounds and dropdown option labels where present. `ConfigExecutor` is not included.
-
----
-
-## 4. Outputs
-
-| Field Name | Kind/Type | Description |
-|---|---|---|
-| `[outputFieldName]` | `[Image / string / number / list / object ...]` | [What this output represents] |
-
-> Derived from the package `Outputs` classes.
-
----
-
-## 5. Use Case Examples
-
-**Use case 1: [Short title]**
-
-[Describe the scenario — what pipeline is being built, what package(s) come before this one and provide its input, what this package does in that context, and what package(s) come after it to consume its output.]
-
-**Use case 2: [Short title]**
-
-[Same structure as above, for a different context.]
-
-**Use case 3: [Short title, optional]**
-
-[Same structure as above, for a different context.]
-
----
-
-## 6. Limitations and Notes
-
-- [Known constraints, e.g. value ranges, unsupported formats, size limits]
-- [Performance notes, e.g. GPU requirement, expected latency]
-- [Common pitfalls or things to watch out for]
+Run `python -m compileall -q src setup.py` for syntax validation. The NovaVision SDK is supplied by the host environment and is not vendored in this repository, so full capsule loading and image/response integration must be checked in a NovaVision runtime.

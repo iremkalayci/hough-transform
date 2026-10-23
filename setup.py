@@ -1,31 +1,11 @@
-import setuptools
+from setuptools import find_packages, setup
 
-setuptools.setup(
-    name="package",
-    version="0.0.1",
-    author="DigiNova",
-    author_email='info@diginova.com.tr',
-    description="Package",
-    url='https://github.com/novavision-ai/package',
-    license='MIT',
-    install_requires=['sdk', 'opencv-python-headless'],
 
-    classifiers=[
-        "Programming Language :: Python :: 3",
-        "License :: OSI Approved :: MIT License",
-        "Operating System :: OS Independent",
-    ],
-
-    packages=[
-        'novavision.package',
-        'novavision.package.classes',
-        'novavision.package.configs',
-        'novavision.package.dataloaders',
-        'novavision.package.executors',
-        'novavision.package.models',
-        'novavision.package.utils',
-        'novavision.package.weights'
-    ],
-    package_dir={'novavision.package': 'src'},
-    python_requires=">=3.6"
+setup(
+    name="hough-transform-capsule",
+    version="0.1.0",
+    description="NovaVision capsule for OpenCV line and circle detection",
+    packages=find_packages(include=("src", "src.*")),
+    install_requires=["sdk", "opencv-python-headless"],
+    python_requires=">=3.9",
 )

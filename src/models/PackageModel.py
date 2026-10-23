@@ -46,7 +46,7 @@ class OutputImage(Output):
         image_value = values.get("value")
         if isinstance(image_value, Image):
             return "object"
-        if isinstance(value, list):
+        if isinstance(image_value, list):
             return "list"
         return value
 
@@ -66,7 +66,7 @@ class OutputDetections(Output):
 class Task(Config):
     name: Literal["Task"] = "Task"
     value: Literal["LineDetection", "CircleDetection"] = "LineDetection"
-    type: Literal["str"] = "str"
+    type: Literal["string"] = "string"
     field: Literal["dropdownlist"] = "dropdownlist"
 
     class Config:
@@ -192,9 +192,25 @@ class PackageOutputs(Outputs):
     outputDetections: OutputDetections
 
 
+class HoughRequestConfigs(Configs):
+    """Parameters exposed by the HoughTransform executor request."""
+    task: Task
+    cannyLow: CannyLow
+    cannyHigh: CannyHigh
+    houghThreshold: HoughThreshold
+    minLineLength: MinLineLength
+    maxLineGap: MaxLineGap
+    dp: DP
+    minDist: MinDist
+    param1: Param1
+    param2: Param2
+    minRadius: MinRadius
+    maxRadius: MaxRadius
+
+
 class PackageRequest(Request):
     inputs: Optional[PackageInputs] = None
-    configs: Configs
+    configs: HoughRequestConfigs
 
     class Config:
         json_schema_extra = {"target": "configs"}
@@ -228,18 +244,6 @@ class ConfigExecutor(Config):
 
 class HoughConfigs(Configs):
     executor: ConfigExecutor
-    task: Task
-    cannyLow: CannyLow
-    cannyHigh: CannyHigh
-    houghThreshold: HoughThreshold
-    minLineLength: MinLineLength
-    maxLineGap: MaxLineGap
-    dp: DP
-    minDist: MinDist
-    param1: Param1
-    param2: Param2
-    minRadius: MinRadius
-    maxRadius: MaxRadius
 
 
 class PackageModel(Package):

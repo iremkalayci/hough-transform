@@ -1,16 +1,16 @@
 
 from sdks.novavision.src.helper.package import PackageHelper
 
-from capsules.HoughTransform.src.models.PackageModel import (
-    PackageModel,
-    HoughConfigs,
-    ConfigExecutor,
-    PackageExecutor,
-    PackageResponse,
-    PackageOutputs,
-    OutputImage,
-    OutputDetections,
-)
+try:  # NovaVision loads capsules under its capsules.<name> namespace.
+    from capsules.HoughTransform.src.models.PackageModel import (
+        PackageModel, HoughConfigs, ConfigExecutor, PackageExecutor,
+        PackageResponse, PackageOutputs, OutputImage, OutputDetections,
+    )
+except ModuleNotFoundError:  # Also support an ordinary installation of this repository.
+    from src.models.PackageModel import (
+        PackageModel, HoughConfigs, ConfigExecutor, PackageExecutor,
+        PackageResponse, PackageOutputs, OutputImage, OutputDetections,
+    )
 
 
 def build_response(context):
@@ -28,18 +28,6 @@ def build_response(context):
 
     configs = HoughConfigs(
         executor=executor,
-        task=context.request.get_param("Task"),
-        cannyLow=context.request.get_param("CannyLow"),
-        cannyHigh=context.request.get_param("CannyHigh"),
-        houghThreshold=context.request.get_param("HoughThreshold"),
-        minLineLength=context.request.get_param("MinLineLength"),
-        maxLineGap=context.request.get_param("MaxLineGap"),
-        dp=context.request.get_param("DP"),
-        minDist=context.request.get_param("MinDist"),
-        param1=context.request.get_param("Param1"),
-        param2=context.request.get_param("Param2"),
-        minRadius=context.request.get_param("MinRadius"),
-        maxRadius=context.request.get_param("MaxRadius"),
     )
 
     package = PackageHelper(

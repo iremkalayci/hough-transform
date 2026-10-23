@@ -11,8 +11,12 @@ from sdks.novavision.src.media.image import Image
 from sdks.novavision.src.base.capsule import Capsule
 from sdks.novavision.src.helper.executor import Executor
 
-from capsules.HoughTransform.src.models.PackageModel import PackageModel
-from capsules.HoughTransform.src.utils.response import build_response
+try:  # NovaVision's capsule loader uses this qualified package path.
+    from capsules.HoughTransform.src.models.PackageModel import PackageModel
+    from capsules.HoughTransform.src.utils.response import build_response
+except ModuleNotFoundError:  # Allow execution from an ordinary source installation.
+    from src.models.PackageModel import PackageModel
+    from src.utils.response import build_response
 
 
 class HoughTransform(Capsule):
@@ -221,7 +225,6 @@ class HoughTransform(Capsule):
             redis_db=self.redis_db,
         )
 
-        self.image = self.image
         return build_response(context=self)
 
 
