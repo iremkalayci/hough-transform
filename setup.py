@@ -18,6 +18,6 @@ setup(
     package_dir={"capsules.HoughTransform": "."},
     # NovaVision's private ``sdks`` package is provided by the host runtime;
     # the unrelated public PyPI package named ``sdk`` must not be installed.
-    install_requires=["numpy", "opencv-python-headless"],
+    install_requires=["numpy", "opencv-python-headless", "grpcio"],
     python_requires=">=3.8",
 )
