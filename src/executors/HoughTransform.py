@@ -9,13 +9,17 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "../../../../"))
 
 from sdks.novavision.src.media.image import Image
 from sdks.novavision.src.base.capsule import Capsule
+from sdks.novavision.src.base.model import BoundingBox
 from sdks.novavision.src.helper.executor import Executor
 
 try:  # NovaVision's capsule loader uses this qualified package path.
-    from capsules.HoughTransform.src.models.PackageModel import PackageModel
+    from capsules.HoughTransform.src.models.PackageModel import (
+        HoughDetection,
+        PackageModel,
+    )
     from capsules.HoughTransform.src.utils.response import build_response
 except ModuleNotFoundError:  # Allow execution from an ordinary source installation.
-    from src.models.PackageModel import PackageModel
+    from src.models.PackageModel import HoughDetection, PackageModel
     from src.utils.response import build_response
 
 
@@ -64,6 +68,23 @@ class HoughTransform(Capsule):
 
         raise ValueError("Expected a grayscale, BGR, or BGRA image.")
 
+    def _make_detection(self, class_id, label, bounds, geometry):
+        left, top, right, bottom = bounds
+        return HoughDetection(
+            boundingBox=BoundingBox(
+                left=float(left),
+                top=float(top),
+                width=float(max(1, right - left)),
+                height=float(max(1, bottom - top)),
+            ),
+            confidence=1.0,
+            classId=class_id,
+            classLabel=label,
+            imgUID=self.uID,
+            keyPoints=[],
+            metadata={"geometry": geometry},
+        )
+
     def detect_lines(self, frame):
         gray = self._to_gray(frame)
 
@@ -111,22 +132,19 @@ class HoughTransform(Capsule):
                     2,
                 )
 
-                detections.append({
-                    "classId": 0,
-                    "classLabel": "line",
-                    "bbox": [
-                        min(x1, x2),
-                        min(y1, y2),
-                        max(x1, x2),
-                        max(y1, y2),
-                    ],
-                    "geometry": {
-                        "x1": x1,
-                        "y1": y1,
-                        "x2": x2,
-                        "y2": y2,
-                    },
-                })
+                detections.append(
+                    self._make_detection(
+                        class_id=0,
+                        label="line",
+                        bounds=(min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)),
+                        geometry={
+                            "x1": x1,
+                            "y1": y1,
+                            "x2": x2,
+                            "y2": y2,
+                        },
+                    )
+                )
 
         return output, detections
 
@@ -184,46 +202,53 @@ class HoughTransform(Capsule):
                     2,
                 )
 
-                detections.append({
-                    "classId": 1,
-                    "classLabel": "circle",
-                    "bbox": [
-                        max(0, x - radius),
-                        max(0, y - radius),
-                        min(width - 1, x + radius),
-                        min(height - 1, y + radius),
-                    ],
-                    "geometry": {
-                        "centerX": x,
-                        "centerY": y,
-                        "radius": radius,
-                    },
-                })
+                left = max(0, x - radius)
+                top = max(0, y - radius)
+                right = min(width - 1, x + radius)
+                bottom = min(height - 1, y + radius)
+                detections.append(
+                    self._make_detection(
+                        class_id=1,
+                        label="circle",
+                        bounds=(left, top, right, bottom),
+                        geometry={
+                            "centerX": x,
+                            "centerY": y,
+                            "radius": radius,
+                        },
+                    )
+                )
 
         return output, detections
 
     def run(self):
-        img = Image.get_frame(
-            img=self.image,
-            redis_db=self.redis_db,
-        )
-
-        if self.task == "LineDetection":
-            output, self.detect = self.detect_lines(img.value)
-
-        elif self.task == "CircleDetection":
-            output, self.detect = self.detect_circles(img.value)
-
-        else:
+        if self.task not in ("LineDetection", "CircleDetection"):
             raise ValueError(f"Unsupported Hough task: {self.task}")
 
-        img.value = output
+        input_is_list = isinstance(self.image, list)
+        input_images = self.image if input_is_list else [self.image]
+        if not input_images or any(image is None for image in input_images):
+            raise ValueError("At least one input image is required.")
+        output_images = []
+        self.detections = []
 
-        self.image = Image.set_frame(
-            img=img,
-            package_uID=self.uID,
-            redis_db=self.redis_db,
-        )
+        for input_image in input_images:
+            img = Image.get_frame(img=input_image, redis_db=self.redis_db)
+            if self.task == "LineDetection":
+                output, detections = self.detect_lines(img.value)
+            else:
+                output, detections = self.detect_circles(img.value)
+            self.detections.extend(detections)
+            img.value = output
+            output_images.append(
+                Image.set_frame(
+                    img=img,
+                    package_uID=self.uID,
+                    redis_db=self.redis_db,
+                )
+            )
+
+        self.image = output_images if input_is_list else output_images[0]
 
         return build_response(context=self)
 

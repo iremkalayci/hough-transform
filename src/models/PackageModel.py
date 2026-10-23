@@ -1,5 +1,5 @@
 
-from typing import Literal, Optional, Union, List
+from typing import Any, Dict, List, Literal, Optional, Union
 
 from pydantic import Field, validator
 
@@ -54,9 +54,14 @@ class OutputImage(Output):
         title = "Output Image"
 
 
+class HoughDetection(Detection):
+    """NovaVision detection fields plus standard metadata for Hough geometry."""
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
 class OutputDetections(Output):
     name: Literal["outputDetections"] = "outputDetections"
-    value: list
+    value: List[HoughDetection]
     type: Literal["list"] = "list"
 
     class Config:

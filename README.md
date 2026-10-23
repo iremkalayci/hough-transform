@@ -6,11 +6,11 @@ NovaVision capsule for detecting line segments with OpenCV `cv2.HoughLinesP()` o
 
 | Name | Description |
 |---|---|
-| `inputImage` | One image object (grayscale, BGR, or BGRA; `uint8`) |
+| `inputImage` | One image or a list of images (grayscale, BGR, or BGRA; `uint8`) |
 | `outputImage` | Input image annotated with the detected lines or circles |
-| `outputDetections` | List of detections with `classId`, `classLabel`, `bbox`, and task-specific `geometry` |
+| `outputDetections` | List of NovaVision `Detection` objects with `boundingBox`, `confidence`, `classId`, `classLabel`, `imgUID`, and Hough details in `metadata.geometry` |
 
-Line detections include endpoints (`x1`, `y1`, `x2`, `y2`); circle detections include center (`centerX`, `centerY`) and `radius`. Bounding boxes use `[xMin, yMin, xMax, yMax]` pixel coordinates.
+Line detections include endpoints (`x1`, `y1`, `x2`, `y2`) in `metadata.geometry`; circle detections include center (`centerX`, `centerY`) and `radius`. Each standard NovaVision bounding box contains `left`, `top`, `width`, and `height` in pixels.
 
 ## Configuration
 

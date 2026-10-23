@@ -15,7 +15,7 @@ except ModuleNotFoundError:  # Also support an ordinary installation of this rep
 
 def build_response(context):
     output_image = OutputImage(value=context.image)
-    output_detections = OutputDetections(value=context.detect)
+    output_detections = OutputDetections(value=context.detections)
 
     outputs = PackageOutputs(
         outputImage=output_image,
