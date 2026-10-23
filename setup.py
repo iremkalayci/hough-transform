@@ -1,10 +1,4 @@
-from setuptools import find_namespace_packages, setup
-
-CAPSULE_PACKAGE = "capsules.HoughTransform"
-source_packages = find_namespace_packages(include=("src", "src.*"))
-packages = [CAPSULE_PACKAGE] + [
-    f"{CAPSULE_PACKAGE}.{package}" for package in source_packages
-]
+from setuptools import setup
 
 setup(
     name="hough-transform-capsule",
@@ -12,8 +6,16 @@ setup(
     description="NovaVision capsule for OpenCV line and circle detection",
     # Match the import path used by NovaVision's capsule loader without
     # shipping synthetic __init__.py files in the capsule source tree.
-    packages=packages,
-    package_dir={CAPSULE_PACKAGE: "."},
+    # Keep metadata values literal: NovaVision's repository loader reads
+    # setup.py metadata without executing arbitrary Python expressions.
+    packages=[
+        "capsules.HoughTransform",
+        "capsules.HoughTransform.src",
+        "capsules.HoughTransform.src.executors",
+        "capsules.HoughTransform.src.models",
+        "capsules.HoughTransform.src.utils",
+    ],
+    package_dir={"capsules.HoughTransform": "."},
     # NovaVision's private ``sdks`` package is provided by the host runtime;
     # the unrelated public PyPI package named ``sdk`` must not be installed.
     install_requires=["numpy", "opencv-python-headless"],
