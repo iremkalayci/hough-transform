@@ -1,5 +1,5 @@
 
-from typing import Any, Dict, List, Literal, Optional, Union
+from typing import List, Literal, Optional, Union
 
 from pydantic import Field, root_validator, validator
 
@@ -54,14 +54,9 @@ class OutputImage(Output):
         title = "Output Image"
 
 
-class HoughDetection(Detection):
-    """NovaVision detection fields plus standard metadata for Hough geometry."""
-    metadata: Dict[str, Any] = Field(default_factory=dict)
-
-
 class OutputDetections(Output):
     name: Literal["outputDetections"] = "outputDetections"
-    value: List[HoughDetection]
+    value: List[Detection]
     type: Literal["list"] = "list"
 
     class Config:
@@ -258,11 +253,11 @@ class ConfigExecutor(Config):
         json_schema_extra = {"target": "value"}
 
 
-class HoughConfigs(Configs):
+class PackageConfigs(Configs):
     executor: ConfigExecutor
 
 
 class PackageModel(Package):
-    configs: HoughConfigs
+    configs: PackageConfigs
     type: Literal["capsule"] = "capsule"
     name: Literal["HoughTransform"] = "HoughTransform"

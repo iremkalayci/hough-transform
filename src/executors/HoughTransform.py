@@ -9,19 +9,18 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "../../../../"))
 
 from sdks.novavision.src.media.image import Image
 from sdks.novavision.src.base.capsule import Capsule
-from sdks.novavision.src.base.model import BoundingBox
+from sdks.novavision.src.base.model import BoundingBox, Detection
 from sdks.novavision.src.helper.executor import Executor
 
 if __package__ and __package__.startswith("capsules."):
     # Do not catch ModuleNotFoundError here: a missing SDK dependency must
     # remain visible instead of being mistaken for a local-import fallback.
     from capsules.HoughTransform.src.models.PackageModel import (
-        HoughDetection,
         PackageModel,
     )
     from capsules.HoughTransform.src.utils.response import build_response
 else:
-    from src.models.PackageModel import HoughDetection, PackageModel
+    from src.models.PackageModel import PackageModel
     from src.utils.response import build_response
 
 
@@ -81,9 +80,9 @@ class HoughTransform(Capsule):
             return cv2.cvtColor(frame[:, :, 0], cv2.COLOR_GRAY2BGR)
         return frame[:, :, :3].copy()
 
-    def _make_detection(self, class_id, label, bounds, geometry):
+    def _make_detection(self, class_id, label, bounds):
         left, top, right, bottom = bounds
-        return HoughDetection(
+        return Detection(
             boundingBox=BoundingBox(
                 left=float(left),
                 top=float(top),
@@ -95,9 +94,23 @@ class HoughTransform(Capsule):
             confidence=1.0,
             classId=class_id,
             classLabel=label,
-            imgUID=getattr(self, "_current_image_uid", None),
+            imgUID=self._current_image_uid,
             keyPoints=[],
-            metadata={"geometry": geometry},
+        )
+
+    @staticmethod
+    def _image_uid(processed_image, source_image):
+        """Read the image UID without confusing it with Capsule.uID."""
+        for image in (processed_image, source_image):
+            if isinstance(image, dict):
+                image_uid = image.get("uID")
+            else:
+                image_uid = getattr(image, "uID", None)
+            if image_uid is not None:
+                return image_uid
+        raise ValueError(
+            "The processed image does not expose its NovaVision uID; "
+            "cannot create correctly associated detections."
         )
 
     def detect_lines(self, frame):
@@ -149,12 +162,6 @@ class HoughTransform(Capsule):
                         class_id=0,
                         label="line",
                         bounds=(min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)),
-                        geometry={
-                            "x1": x1,
-                            "y1": y1,
-                            "x2": x2,
-                            "y2": y2,
-                        },
                     )
                 )
 
@@ -272,11 +279,6 @@ class HoughTransform(Capsule):
                         class_id=1,
                         label="circle",
                         bounds=(left, top, right, bottom),
-                        geometry={
-                            "centerX": x,
-                            "centerY": y,
-                            "radius": radius,
-                        },
                     )
                 )
 
@@ -309,7 +311,7 @@ class HoughTransform(Capsule):
 
         for input_image in input_images:
             img = Image.get_frame(img=input_image, redis_db=self.redis_db)
-            self._current_image_uid = getattr(img, "uID", None)
+            self._current_image_uid = self._image_uid(img, input_image)
             if self.task == "LineDetection":
                 output, detections = self.detect_lines(img.value)
             else:

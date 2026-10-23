@@ -3,12 +3,12 @@ from sdks.novavision.src.helper.package import PackageHelper
 
 if __package__ and __package__.startswith("capsules."):
     from capsules.HoughTransform.src.models.PackageModel import (
-        PackageModel, HoughConfigs, ConfigExecutor, PackageExecutor,
+        PackageModel, PackageConfigs, ConfigExecutor, PackageExecutor,
         PackageResponse, PackageOutputs, OutputImage, OutputDetections,
     )
 else:
     from src.models.PackageModel import (
-        PackageModel, HoughConfigs, ConfigExecutor, PackageExecutor,
+        PackageModel, PackageConfigs, ConfigExecutor, PackageExecutor,
         PackageResponse, PackageOutputs, OutputImage, OutputDetections,
     )
 
@@ -26,7 +26,7 @@ def build_response(context):
     package_executor = PackageExecutor(value=response)
     executor = ConfigExecutor(value=package_executor)
 
-    configs = HoughConfigs(
+    configs = PackageConfigs(
         executor=executor,
     )
 

@@ -8,9 +8,9 @@ NovaVision capsule for detecting line segments with OpenCV `cv2.HoughLinesP()` o
 |---|---|
 | `inputImage` | One image or a list of images (grayscale, BGR, or BGRA; `uint8`) |
 | `outputImage` | Input image annotated with the detected lines or circles |
-| `outputDetections` | List of NovaVision `Detection` objects with `boundingBox`, `confidence`, `classId`, `classLabel`, `imgUID`, and Hough details in `metadata.geometry` |
+| `outputDetections` | List of NovaVision `Detection` objects with the SDK `boundingBox`, `confidence`, `classId`, `classLabel`, and `imgUID` fields |
 
-Line detections include endpoints (`x1`, `y1`, `x2`, `y2`) in `metadata.geometry`; circle detections include center (`centerX`, `centerY`) and `radius`. Each standard NovaVision bounding box contains `left`, `top`, `width`, and `height` in pixels.
+Each standard NovaVision bounding box contains `left`, `top`, `width`, and `height` in pixels. The `imgUID` comes from the processed image (or the input image model if the decoded frame wrapper omits it); the capsule instance UID is not used as an image UID. Shape-specific endpoints and radii are drawn on `outputImage`; the output schema stays the SDK's `Detection` schema and does not add custom geometry fields.
 
 ## Configuration
 
