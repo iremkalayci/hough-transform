@@ -249,7 +249,9 @@ class ConfigExecutor(Config):
     field: Literal["dependentDropdownlist"] = "dependentDropdownlist"
 
     class Config:
-        title = "Hough Transform"
+        # NovaVision's form builder uses this wrapper as the executor/task
+        # selector; keep the title used by working capsule schemas.
+        title = "Task"
         json_schema_extra = {"target": "value"}
 
 
