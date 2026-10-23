@@ -6,7 +6,7 @@ NovaVision capsule for detecting line segments with OpenCV `cv2.HoughLinesP()` o
 
 | Name | Description |
 |---|---|
-| `inputImage` | One image or a list of images (grayscale, BGR, or BGRA; `uint8`) |
+| `inputImage` | One image or a list of grayscale, BGR, or BGRA images. Accepts `uint8` and floating-point pixel values in `[0, 255]` or normalized `[0, 1]`. |
 | `outputImage` | Input image annotated with the detected lines or circles |
 | `outputDetections` | List of NovaVision `Detection` objects with the SDK `boundingBox`, `confidence`, `classId`, `classLabel`, and `imgUID` fields |
 
@@ -30,7 +30,7 @@ Each standard NovaVision bounding box contains `left`, `top`, `width`, and `heig
 | `MinRadius` | `CircleDetection` | 0 | Minimum radius; zero leaves the lower bound unspecified |
 | `MaxRadius` | `CircleDetection` | 0 | Maximum radius; zero leaves the upper bound unspecified |
 
-The capsule validates that images are non-empty `uint8` arrays and that the selected task's parameters are in valid ranges before calling OpenCV. A small Gaussian blur is applied before line edge detection and near-collinear overlapping line segments are merged. Circle detections use a size-aware minimum distance when `MinDist` is zero and remove strongly overlapping candidates. Detection confidence is left unset because the Hough accumulator is not a calibrated confidence score.
+The capsule converts supported floating-point frames to `uint8` for OpenCV processing, scaling normalized `[0, 1]` pixels to `[0, 255]`. Annotated output is restored to the input frame's dtype and range. It validates that images are non-empty and that the selected task's parameters are in valid ranges before calling OpenCV. A small Gaussian blur is applied before line edge detection and near-collinear overlapping line segments are merged. Circle detections use a size-aware minimum distance when `MinDist` is zero and remove strongly overlapping candidates. Detection confidence is left unset because the Hough accumulator is not a calibrated confidence score.
 
 NovaVision supplies its private `sdks.novavision` package in the host runtime. The PyPI distribution named `sdk` is unrelated and is not installed by this capsule.
 

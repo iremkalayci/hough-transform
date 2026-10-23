@@ -51,6 +51,54 @@ class HoughTransform(Capsule):
         raise ValueError("Expected a grayscale, BGR, or BGRA image.")
 
     @staticmethod
+    def _prepare_frame(frame):
+        """Convert supported NovaVision numeric frames to OpenCV's uint8 format."""
+        if not isinstance(frame, np.ndarray) or frame.size == 0:
+            raise ValueError("Input image is empty or invalid.")
+        if frame.dtype == np.uint8:
+            return frame, False
+
+        if np.issubdtype(frame.dtype, np.floating):
+            if not np.all(np.isfinite(frame)):
+                raise ValueError("Input image contains NaN or infinite pixel values.")
+            minimum = float(np.min(frame))
+            maximum = float(np.max(frame))
+            if minimum < 0 or maximum > 255:
+                raise ValueError(
+                    "Floating-point input pixels must be in [0, 1] or [0, 255]; "
+                    "received range [{}, {}].".format(minimum, maximum)
+                )
+            normalized = maximum <= 1.0
+            scale = 255.0 if normalized else 1.0
+            frame_u8 = np.rint(frame * scale).astype(np.uint8)
+            return frame_u8, normalized
+
+        if np.issubdtype(frame.dtype, np.integer):
+            minimum = int(np.min(frame))
+            maximum = int(np.max(frame))
+            if minimum < 0 or maximum > 255:
+                raise ValueError(
+                    "Integer input pixels must be in [0, 255]; received range "
+                    "[{}, {}].".format(minimum, maximum)
+                )
+            return frame.astype(np.uint8), False
+
+        raise ValueError(
+            "Unsupported input image dtype '{}'; expected uint8 or floating-point "
+            "pixels in [0, 1] or [0, 255].".format(frame.dtype)
+        )
+
+    @staticmethod
+    def _restore_frame_dtype(output, source_frame, normalized):
+        """Return annotations in the input frame's dtype and numeric range."""
+        if source_frame.dtype == np.uint8:
+            return output
+        restored = output.astype(source_frame.dtype)
+        if normalized:
+            restored /= 255.0
+        return restored
+
+    @staticmethod
     def _to_color(frame):
         if frame.ndim == 2:
             return cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
@@ -285,12 +333,14 @@ class HoughTransform(Capsule):
         for input_image in input_images:
             img = Image.get_frame(img=input_image, redis_db=self.redis_db)
             self._current_image_uid = self._image_uid(img, input_image)
+            source_frame = np.asarray(img.value)
+            frame, normalized = self._prepare_frame(source_frame)
             if self.task == "LineDetection":
-                output, detections = self.detect_lines(img.value)
+                output, detections = self.detect_lines(frame)
             else:
-                output, detections = self.detect_circles(img.value)
+                output, detections = self.detect_circles(frame)
             self.detections.extend(detections)
-            img.value = output
+            img.value = self._restore_frame_dtype(output, source_frame, normalized)
             output_images.append(
                 Image.set_frame(
                     img=img,
