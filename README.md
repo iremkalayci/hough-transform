@@ -14,23 +14,23 @@ Each standard NovaVision bounding box contains `left`, `top`, `width`, and `heig
 
 ## Configuration
 
-`Task` is a dropdown with `LineDetection` and `CircleDetection`. All numeric parameters are available in the request configuration; only the selected task's parameters are used.
+`Task` is the NovaVision executor selector. It offers two executor branches: `LineDetection` and `CircleDetection`. Each branch has its own request, response, inputs, outputs, and configuration schema, matching the `ConfigExecutor.value` union used by the working TemplateMatching capsule. Line-only and circle-only settings are shown under their respective task branch.
 
 | Parameter | Used by | Default | Meaning |
 |---|---|---:|---|
-| `CannyLow` | Lines | 50 | Lower Canny edge threshold (0–255) |
-| `CannyHigh` | Lines | 150 | Upper Canny edge threshold (1–255; must exceed `CannyLow`) |
-| `HoughThreshold` | Lines | 50 | Minimum Hough votes |
-| `MinLineLength` | Lines | 50 | Minimum accepted segment length in pixels |
-| `MaxLineGap` | Lines | 10 | Maximum gap between joined segment points |
-| `DP` | Circles | 1.2 | Inverse accumulator resolution ratio |
-| `MinDist` | Circles | 0 (automatic) | Minimum center-to-center distance in pixels; zero uses one eighth of image height |
-| `Param1` | Circles | 100 | Upper Canny threshold used by the circle detector |
-| `Param2` | Circles | 30 | Circle accumulator threshold; lower values detect more candidates |
-| `MinRadius` | Circles | 0 | Minimum radius; zero leaves the lower bound unspecified |
-| `MaxRadius` | Circles | 0 | Maximum radius; zero leaves the upper bound unspecified |
+| `CannyLow` | `LineDetection` | 50 | Lower Canny edge threshold (0–255) |
+| `CannyHigh` | `LineDetection` | 150 | Upper Canny edge threshold (1–255; must exceed `CannyLow`) |
+| `HoughThreshold` | `LineDetection` | 50 | Minimum Hough votes |
+| `MinLineLength` | `LineDetection` | 50 | Minimum accepted segment length in pixels |
+| `MaxLineGap` | `LineDetection` | 10 | Maximum gap between joined segment points |
+| `DP` | `CircleDetection` | 1.2 | Inverse accumulator resolution ratio |
+| `MinDist` | `CircleDetection` | 0 (automatic) | Minimum center-to-center distance in pixels; zero uses one eighth of image height |
+| `Param1` | `CircleDetection` | 100 | Upper Canny threshold used by the circle detector |
+| `Param2` | `CircleDetection` | 30 | Circle accumulator threshold; lower values detect more candidates |
+| `MinRadius` | `CircleDetection` | 0 | Minimum radius; zero leaves the lower bound unspecified |
+| `MaxRadius` | `CircleDetection` | 0 | Maximum radius; zero leaves the upper bound unspecified |
 
-The capsule validates that images are non-empty `uint8` arrays and that the parameters are in valid ranges before calling OpenCV. A small Gaussian blur is applied before line edge detection and near-collinear overlapping line segments are merged. Circle detections use a size-aware minimum distance when `MinDist` is zero and remove strongly overlapping candidates.
+The capsule validates that images are non-empty `uint8` arrays and that the selected task's parameters are in valid ranges before calling OpenCV. A small Gaussian blur is applied before line edge detection and near-collinear overlapping line segments are merged. Circle detections use a size-aware minimum distance when `MinDist` is zero and remove strongly overlapping candidates. Detection confidence is left unset because the Hough accumulator is not a calibrated confidence score.
 
 NovaVision supplies its private `sdks.novavision` package in the host runtime. The PyPI distribution named `sdk` is unrelated and is not installed by this capsule.
 

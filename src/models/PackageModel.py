@@ -1,20 +1,19 @@
-
 from typing import List, Literal, Optional, Union
 
-from pydantic import Field, root_validator, validator
+from pydantic import Field, validator
 
 from sdks.novavision.src.base.model import (
-    Package,
-    Image,
-    Inputs,
-    Configs,
-    Outputs,
-    Response,
-    Request,
-    Output,
-    Input,
     Config,
-    Detection,
+    Configs,
+    Detection as SDKDetection,
+    Image,
+    Input,
+    Inputs,
+    Output,
+    Outputs,
+    Package,
+    Request,
+    Response,
 )
 
 
@@ -54,6 +53,13 @@ class OutputImage(Output):
         title = "Output Image"
 
 
+class Detection(SDKDetection):
+    confidence: Optional[float] = None
+    classLabel: Optional[str] = None
+    classId: Optional[int] = None
+    imgUID: str
+
+
 class OutputDetections(Output):
     name: Literal["outputDetections"] = "outputDetections"
     value: List[Detection]
@@ -61,16 +67,6 @@ class OutputDetections(Output):
 
     class Config:
         title = "Detections"
-
-
-class Task(Config):
-    name: Literal["Task"] = "Task"
-    value: Literal["LineDetection", "CircleDetection"] = "LineDetection"
-    type: Literal["string"] = "string"
-    field: Literal["dropdownlist"] = "dropdownlist"
-
-    class Config:
-        title = "Detection Task"
 
 
 class CannyLow(Config):
@@ -135,7 +131,6 @@ class DP(Config):
 
 class MinDist(Config):
     name: Literal["MinDist"] = "MinDist"
-    # Zero selects an image-size-aware distance in the executor.
     value: float = Field(default=0.0, ge=0)
     type: Literal["number"] = "number"
     field: Literal["textInput"] = "textInput"
@@ -188,19 +183,15 @@ class PackageInputs(Inputs):
     inputImage: InputImage
 
 
-class PackageOutputs(Outputs):
-    outputImage: OutputImage
-    outputDetections: OutputDetections
-
-
-class HoughRequestConfigs(Configs):
-    """Parameters exposed by the HoughTransform executor request."""
-    task: Task
+class LineDetectionConfigs(Configs):
     cannyLow: CannyLow
     cannyHigh: CannyHigh
     houghThreshold: HoughThreshold
     minLineLength: MinLineLength
     maxLineGap: MaxLineGap
+
+
+class CircleDetectionConfigs(Configs):
     dp: DP
     minDist: MinDist
     param1: Param1
@@ -208,51 +199,71 @@ class HoughRequestConfigs(Configs):
     minRadius: MinRadius
     maxRadius: MaxRadius
 
-    @root_validator(skip_on_failure=True)
-    def validate_canny_thresholds(cls, values):
-        low = values.get("cannyLow")
-        high = values.get("cannyHigh")
-        low = getattr(low, "value", low)
-        high = getattr(high, "value", high)
-        if low is not None and high is not None and low >= high:
-            raise ValueError("CannyLow must be less than CannyHigh.")
-        return values
+
+class LineDetectionOutputs(Outputs):
+    outputImage: OutputImage
+    outputDetections: OutputDetections
 
 
-class PackageRequest(Request):
+class CircleDetectionOutputs(Outputs):
+    outputImage: OutputImage
+    outputDetections: OutputDetections
+
+
+class LineDetectionRequest(Request):
     inputs: Optional[PackageInputs] = None
-    configs: HoughRequestConfigs
+    configs: LineDetectionConfigs
 
     class Config:
         json_schema_extra = {"target": "configs"}
 
 
-class PackageResponse(Response):
-    outputs: PackageOutputs
+class CircleDetectionRequest(Request):
+    inputs: Optional[PackageInputs] = None
+    configs: CircleDetectionConfigs
+
+    class Config:
+        json_schema_extra = {"target": "configs"}
 
 
-class PackageExecutor(Config):
-    name: Literal["HoughTransform"] = "HoughTransform"
-    value: Union[PackageRequest, PackageResponse]
+class LineDetectionResponse(Response):
+    outputs: LineDetectionOutputs
+
+
+class CircleDetectionResponse(Response):
+    outputs: CircleDetectionOutputs
+
+
+class LineDetectionExecutor(Config):
+    name: Literal["LineDetection"] = "LineDetection"
+    value: Union[LineDetectionRequest, LineDetectionResponse]
     type: Literal["object"] = "object"
     field: Literal["option"] = "option"
 
     class Config:
-        title = "Hough Transform"
+        title = "Line Detection"
+        json_schema_extra = {"target": {"value": 0}}
+
+
+class CircleDetectionExecutor(Config):
+    name: Literal["CircleDetection"] = "CircleDetection"
+    value: Union[CircleDetectionRequest, CircleDetectionResponse]
+    type: Literal["object"] = "object"
+    field: Literal["option"] = "option"
+
+    class Config:
+        title = "Circle Detection"
         json_schema_extra = {"target": {"value": 0}}
 
 
 class ConfigExecutor(Config):
     name: Literal["ConfigExecutor"] = "ConfigExecutor"
-    value: Union[PackageExecutor]
+    value: Union[LineDetectionExecutor, CircleDetectionExecutor]
     type: Literal["executor"] = "executor"
     field: Literal["dependentDropdownlist"] = "dependentDropdownlist"
 
     class Config:
-        # NovaVision's form builder uses this wrapper as the executor/task
-        # selector; keep the title used by working capsule schemas.
         title = "Task"
-        json_schema_extra = {"target": "value"}
 
 
 class PackageConfigs(Configs):

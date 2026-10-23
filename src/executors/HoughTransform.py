@@ -9,18 +9,15 @@ sys.path.append(os.path.join(os.path.dirname(__file__), "../../../../"))
 
 from sdks.novavision.src.media.image import Image
 from sdks.novavision.src.base.capsule import Capsule
-from sdks.novavision.src.base.model import BoundingBox, Detection
-from sdks.novavision.src.helper.executor import Executor
+from sdks.novavision.src.base.model import BoundingBox
 
 if __package__ and __package__.startswith("capsules."):
     # Do not catch ModuleNotFoundError here: a missing SDK dependency must
     # remain visible instead of being mistaken for a local-import fallback.
-    from capsules.HoughTransform.src.models.PackageModel import (
-        PackageModel,
-    )
+    from capsules.HoughTransform.src.models.PackageModel import Detection, PackageModel
     from capsules.HoughTransform.src.utils.response import build_response
 else:
-    from src.models.PackageModel import PackageModel
+    from src.models.PackageModel import Detection, PackageModel
     from src.utils.response import build_response
 
 
@@ -31,20 +28,7 @@ class HoughTransform(Capsule):
         self.request.model = PackageModel(**self.request.data)
 
         self.image = self.request.get_param("inputImage")
-        self.task = self.request.get_param("Task")
-
-        self.canny_low = self.request.get_param("CannyLow")
-        self.canny_high = self.request.get_param("CannyHigh")
-        self.hough_threshold = self.request.get_param("HoughThreshold")
-        self.min_line_length = self.request.get_param("MinLineLength")
-        self.max_line_gap = self.request.get_param("MaxLineGap")
-
-        self.dp = self.request.get_param("DP")
-        self.min_dist = self.request.get_param("MinDist")
-        self.param1 = self.request.get_param("Param1")
-        self.param2 = self.request.get_param("Param2")
-        self.min_radius = self.request.get_param("MinRadius")
-        self.max_radius = self.request.get_param("MaxRadius")
+        self.detections = []
 
     @staticmethod
     def bootstrap(config: dict) -> dict:
@@ -89,13 +73,11 @@ class HoughTransform(Capsule):
                 width=float(max(1, right - left)),
                 height=float(max(1, bottom - top)),
             ),
-            # Detection confidence is required by the NovaVision Detection
-            # model; Hough's accumulator does not provide a calibrated score.
-            confidence=1.0,
+            # Hough's accumulator threshold is not a calibrated confidence.
+            confidence=None,
             classId=class_id,
             classLabel=label,
             imgUID=self._current_image_uid,
-            keyPoints=[],
         )
 
     @staticmethod
@@ -285,9 +267,6 @@ class HoughTransform(Capsule):
         return output, detections
 
     def run(self):
-        if self.task not in ("LineDetection", "CircleDetection"):
-            raise ValueError(f"Unsupported Hough task: {self.task}")
-
         if self.task == "LineDetection":
             if not (0 <= self.canny_low < self.canny_high <= 255):
                 raise ValueError("CannyLow must be less than CannyHigh.")
@@ -329,7 +308,3 @@ class HoughTransform(Capsule):
         self.image = output_images if input_is_list else output_images[0]
 
         return build_response(context=self)
-
-
-if __name__ == "__main__":
-    Executor(sys.argv[1]).run()
