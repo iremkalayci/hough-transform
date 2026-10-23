@@ -1,12 +1,12 @@
 
 from sdks.novavision.src.helper.package import PackageHelper
 
-try:  # NovaVision loads capsules under its capsules.<name> namespace.
+if __package__ and __package__.startswith("capsules."):
     from capsules.HoughTransform.src.models.PackageModel import (
         PackageModel, HoughConfigs, ConfigExecutor, PackageExecutor,
         PackageResponse, PackageOutputs, OutputImage, OutputDetections,
     )
-except ModuleNotFoundError:  # Also support an ordinary installation of this repository.
+else:
     from src.models.PackageModel import (
         PackageModel, HoughConfigs, ConfigExecutor, PackageExecutor,
         PackageResponse, PackageOutputs, OutputImage, OutputDetections,

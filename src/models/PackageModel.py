@@ -1,7 +1,7 @@
 
 from typing import Any, Dict, List, Literal, Optional, Union
 
-from pydantic import Field, validator
+from pydantic import Field, root_validator, validator
 
 from sdks.novavision.src.base.model import (
     Package,
@@ -140,7 +140,8 @@ class DP(Config):
 
 class MinDist(Config):
     name: Literal["MinDist"] = "MinDist"
-    value: float = Field(default=20.0, gt=0)
+    # Zero selects an image-size-aware distance in the executor.
+    value: float = Field(default=0.0, ge=0)
     type: Literal["number"] = "number"
     field: Literal["textInput"] = "textInput"
 
@@ -212,6 +213,16 @@ class HoughRequestConfigs(Configs):
     minRadius: MinRadius
     maxRadius: MaxRadius
 
+    @root_validator(skip_on_failure=True)
+    def validate_canny_thresholds(cls, values):
+        low = values.get("cannyLow")
+        high = values.get("cannyHigh")
+        low = getattr(low, "value", low)
+        high = getattr(high, "value", high)
+        if low is not None and high is not None and low >= high:
+            raise ValueError("CannyLow must be less than CannyHigh.")
+        return values
+
 
 class PackageRequest(Request):
     inputs: Optional[PackageInputs] = None
@@ -243,7 +254,7 @@ class ConfigExecutor(Config):
     field: Literal["dependentDropdownlist"] = "dependentDropdownlist"
 
     class Config:
-        title = "Task"
+        title = "Hough Transform"
         json_schema_extra = {"target": "value"}
 
 

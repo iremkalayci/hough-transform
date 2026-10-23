@@ -24,13 +24,15 @@ Line detections include endpoints (`x1`, `y1`, `x2`, `y2`) in `metadata.geometry
 | `MinLineLength` | Lines | 50 | Minimum accepted segment length in pixels |
 | `MaxLineGap` | Lines | 10 | Maximum gap between joined segment points |
 | `DP` | Circles | 1.2 | Inverse accumulator resolution ratio |
-| `MinDist` | Circles | 20 | Minimum center-to-center distance in pixels |
+| `MinDist` | Circles | 0 (automatic) | Minimum center-to-center distance in pixels; zero uses one eighth of image height |
 | `Param1` | Circles | 100 | Upper Canny threshold used by the circle detector |
 | `Param2` | Circles | 30 | Circle accumulator threshold; lower values detect more candidates |
 | `MinRadius` | Circles | 0 | Minimum radius; zero leaves the lower bound unspecified |
 | `MaxRadius` | Circles | 0 | Maximum radius; zero leaves the upper bound unspecified |
 
-The capsule validates that images are non-empty `uint8` arrays and that the parameters are in valid ranges before calling OpenCV.
+The capsule validates that images are non-empty `uint8` arrays and that the parameters are in valid ranges before calling OpenCV. A small Gaussian blur is applied before line edge detection and near-collinear overlapping line segments are merged. Circle detections use a size-aware minimum distance when `MinDist` is zero and remove strongly overlapping candidates.
+
+NovaVision supplies its private `sdks.novavision` package in the host runtime. The PyPI distribution named `sdk` is unrelated and is not installed by this capsule.
 
 ## Development checks
 
