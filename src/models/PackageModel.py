@@ -119,6 +119,86 @@ class MaxLineGap(Config):
         title = "Maximum Line Gap"
 
 
+class MergeDistance(Config):
+    name: Literal["MergeDistance"] = "MergeDistance"
+    value: float = Field(default=10.0, ge=0)
+    type: Literal["number"] = "number"
+    field: Literal["textInput"] = "textInput"
+
+    class Config:
+        title = "Merge Distance (px, 0 = off)"
+
+
+class MinAngle(Config):
+    name: Literal["MinAngle"] = "MinAngle"
+    value: float = Field(default=0.0, ge=0, le=90)
+    type: Literal["number"] = "number"
+    field: Literal["textInput"] = "textInput"
+
+    class Config:
+        title = "Minimum Line Angle (deg)"
+
+
+class MaxAngle(Config):
+    name: Literal["MaxAngle"] = "MaxAngle"
+    value: float = Field(default=90.0, ge=0, le=90)
+    type: Literal["number"] = "number"
+    field: Literal["textInput"] = "textInput"
+
+    class Config:
+        title = "Maximum Line Angle (deg)"
+
+
+class RoiLeft(Config):
+    name: Literal["RoiLeft"] = "RoiLeft"
+    value: float = Field(default=0.0, ge=0, le=100)
+    type: Literal["number"] = "number"
+    field: Literal["textInput"] = "textInput"
+
+    class Config:
+        title = "ROI Left (%)"
+
+
+class RoiTop(Config):
+    name: Literal["RoiTop"] = "RoiTop"
+    value: float = Field(default=0.0, ge=0, le=100)
+    type: Literal["number"] = "number"
+    field: Literal["textInput"] = "textInput"
+
+    class Config:
+        title = "ROI Top (%)"
+
+
+class RoiRight(Config):
+    name: Literal["RoiRight"] = "RoiRight"
+    value: float = Field(default=100.0, ge=0, le=100)
+    type: Literal["number"] = "number"
+    field: Literal["textInput"] = "textInput"
+
+    class Config:
+        title = "ROI Right (%)"
+
+
+class RoiBottom(Config):
+    name: Literal["RoiBottom"] = "RoiBottom"
+    value: float = Field(default=100.0, ge=0, le=100)
+    type: Literal["number"] = "number"
+    field: Literal["textInput"] = "textInput"
+
+    class Config:
+        title = "ROI Bottom (%)"
+
+
+class RoiTopInset(Config):
+    name: Literal["RoiTopInset"] = "RoiTopInset"
+    value: float = Field(default=0.0, ge=0, le=50)
+    type: Literal["number"] = "number"
+    field: Literal["textInput"] = "textInput"
+
+    class Config:
+        title = "ROI Top Inset (%)"
+
+
 class DP(Config):
     name: Literal["DP"] = "DP"
     value: float = Field(default=1.2, gt=0)
@@ -189,6 +269,14 @@ class LineDetectionConfigs(Configs):
     houghThreshold: HoughThreshold
     minLineLength: MinLineLength
     maxLineGap: MaxLineGap
+    mergeDistance: MergeDistance
+    minAngle: MinAngle
+    maxAngle: MaxAngle
+    roiLeft: RoiLeft
+    roiTop: RoiTop
+    roiRight: RoiRight
+    roiBottom: RoiBottom
+    roiTopInset: RoiTopInset
 
 
 class CircleDetectionConfigs(Configs):

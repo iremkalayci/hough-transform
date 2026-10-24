@@ -13,6 +13,14 @@ from sdks.novavision.src.base.model import BoundingBox
 
 from capsules.HoughTransform.src.models.PackageModel import Detection, PackageModel
 from capsules.HoughTransform.src.utils.response import build_response
+from capsules.HoughTransform.src.utils.line_ops import (
+    clip_segments,
+    filter_by_angle,
+    is_full_roi,
+    merge_segments,
+    roi_polygon,
+    roi_mask,
+)
 
 
 class HoughTransform(Capsule):
@@ -139,15 +147,7 @@ class HoughTransform(Capsule):
 
     def detect_lines(self, frame):
         gray = self._to_gray(frame)
-
-        if not (0 <= self.canny_low < self.canny_high <= 255):
-            raise ValueError("CannyLow must be less than CannyHigh.")
-
-        if self.hough_threshold <= 0:
-            raise ValueError("HoughThreshold must be positive.")
-
-        if self.min_line_length <= 0 or self.max_line_gap < 0:
-            raise ValueError("Invalid line length or gap.")
+        self._validate_line_params()
 
         smoothed = cv2.GaussianBlur(gray, (5, 5), 0)
         edges = cv2.Canny(
@@ -155,6 +155,23 @@ class HoughTransform(Capsule):
             self.canny_low,
             self.canny_high,
         )
+
+        if not is_full_roi(
+            self.roi_left,
+            self.roi_top,
+            self.roi_right,
+            self.roi_bottom,
+            self.roi_top_inset,
+        ):
+            mask = roi_mask(
+                gray.shape,
+                self.roi_left,
+                self.roi_top,
+                self.roi_right,
+                self.roi_bottom,
+                self.roi_top_inset,
+            )
+            edges = cv2.bitwise_and(edges, mask)
 
         lines = cv2.HoughLinesP(
             edges,
@@ -170,7 +187,17 @@ class HoughTransform(Capsule):
         detections = []
 
         if lines is not None:
-            for line in self._merge_line_segments(lines, self.max_line_gap):
+            segments = np.asarray(lines).reshape(-1, 4)
+            segments = filter_by_angle(segments, self.min_angle, self.max_angle)
+            segments = merge_segments(
+                segments,
+                max_gap=self.max_line_gap,
+                merge_distance=self.merge_distance,
+            )
+            segments = filter_by_angle(segments, self.min_angle, self.max_angle)
+            height, width = gray.shape
+            segments = clip_segments(segments, width=width, height=height)
+            for line in segments:
                 x1, y1, x2, y2 = map(int, line)
 
                 cv2.line(
@@ -191,51 +218,25 @@ class HoughTransform(Capsule):
 
         return output, detections
 
-    @staticmethod
-    def _merge_line_segments(lines, max_line_gap):
-        """Collapse near-collinear overlapping Hough segments into lines."""
-        segments = [tuple(map(int, line[0])) for line in lines]
-        segments.sort(key=lambda segment: -np.hypot(
-            segment[2] - segment[0], segment[3] - segment[1]
-        ))
-        merged = []
-        angle_tolerance = np.deg2rad(5)
-        for segment in segments:
-            x1, y1, x2, y2 = segment
-            vx, vy = x2 - x1, y2 - y1
-            length = float(np.hypot(vx, vy))
-            if not length:
-                continue
-            ux, uy = vx / length, vy / length
-            matched = False
-            for index, current in enumerate(merged):
-                ax, ay, bx, by = current
-                avx, avy = bx - ax, by - ay
-                alength = float(np.hypot(avx, avy))
-                if not alength:
-                    continue
-                au, av = avx / alength, avy / alength
-                angle = np.arccos(np.clip(abs(ux * au + uy * av), -1, 1))
-                # Perpendicular distance from the candidate to current line.
-                distance = abs((x1 - ax) * av - (y1 - ay) * au)
-                if angle > angle_tolerance or distance > 4:
-                    continue
-                points = [(ax, ay), (bx, by), (x1, y1), (x2, y2)]
-                origin = np.array([ax, ay], dtype=float)
-                direction = np.array([au, av], dtype=float)
-                projections = [float(np.dot(np.array(point) - origin, direction)) for point in points]
-                low, high = min(projections), max(projections)
-                if low > alength + max(10, 2 * max_line_gap) or high < -max(10, 2 * max_line_gap):
-                    continue
-                low_point = origin + low * direction
-                high_point = origin + high * direction
-                merged[index] = (int(round(low_point[0])), int(round(low_point[1])),
-                                 int(round(high_point[0])), int(round(high_point[1])))
-                matched = True
-                break
-            if not matched:
-                merged.append(segment)
-        return merged
+    def _validate_line_params(self):
+        if not (0 <= self.canny_low < self.canny_high <= 255):
+            raise ValueError("CannyLow must be less than CannyHigh.")
+        if self.hough_threshold <= 0:
+            raise ValueError("HoughThreshold must be positive.")
+        if self.min_line_length <= 0 or self.max_line_gap < 0:
+            raise ValueError("Invalid line length or gap.")
+        if not np.isfinite(self.merge_distance) or self.merge_distance < 0:
+            raise ValueError("MergeDistance must be finite and non-negative.")
+        if not (0 <= self.min_angle <= self.max_angle <= 90):
+            raise ValueError("Line angles must satisfy 0 <= MinAngle <= MaxAngle <= 90.")
+        roi_polygon(
+            (100_000, 100_000),
+            self.roi_left,
+            self.roi_top,
+            self.roi_right,
+            self.roi_bottom,
+            self.roi_top_inset,
+        )
 
     def detect_circles(self, frame):
         gray = self._to_gray(frame)
@@ -310,12 +311,7 @@ class HoughTransform(Capsule):
 
     def run(self):
         if self.task == "LineDetection":
-            if not (0 <= self.canny_low < self.canny_high <= 255):
-                raise ValueError("CannyLow must be less than CannyHigh.")
-            if self.hough_threshold <= 0:
-                raise ValueError("HoughThreshold must be positive.")
-            if self.min_line_length <= 0 or self.max_line_gap < 0:
-                raise ValueError("Invalid line length or gap.")
+            self._validate_line_params()
         elif min(self.dp, self.param1, self.param2) <= 0:
             raise ValueError("DP, Param1, and Param2 must be positive.")
         elif self.min_radius < 0 or self.max_radius < 0:

@@ -17,6 +17,14 @@ class LineDetection(HoughTransform):
         self.hough_threshold = self.request.get_param("HoughThreshold")
         self.min_line_length = self.request.get_param("MinLineLength")
         self.max_line_gap = self.request.get_param("MaxLineGap")
+        self.merge_distance = self.request.get_param("MergeDistance")
+        self.min_angle = self.request.get_param("MinAngle")
+        self.max_angle = self.request.get_param("MaxAngle")
+        self.roi_left = self.request.get_param("RoiLeft")
+        self.roi_top = self.request.get_param("RoiTop")
+        self.roi_right = self.request.get_param("RoiRight")
+        self.roi_bottom = self.request.get_param("RoiBottom")
+        self.roi_top_inset = self.request.get_param("RoiTopInset")
 
 
 if __name__ == "__main__":
