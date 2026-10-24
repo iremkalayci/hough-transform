@@ -19,16 +19,16 @@ def road_roi_polygon(shape):
         raise ValueError("Image height and width must be positive.")
 
     last_x, last_y = width - 1, height - 1
-    top_y = int(round(last_y * 0.42))
-    top_left = int(round(last_x * 0.25))
-    top_right = int(round(last_x * 0.75))
+    top_y = int(round(last_y * 0.36))
+    top_left = int(round(last_x * 0.40))
+    top_right = int(round(last_x * 0.60))
     return np.asarray(
         [(top_left, top_y), (top_right, top_y), (last_x, last_y), (0, last_y)],
         dtype=np.int32,
     )
 
 
-def filter_by_angle(segments, min_angle=12.0, max_angle=85.0):
+def filter_by_angle(segments, min_angle=18.0, max_angle=58.0):
     """Keep line segments in the internal road-line angle range."""
     minimum, maximum = float(min_angle), float(max_angle)
     if not (math.isfinite(minimum) and math.isfinite(maximum)):
@@ -42,6 +42,31 @@ def filter_by_angle(segments, min_angle=12.0, max_angle=85.0):
     dy = values[:, 3] - values[:, 1]
     angles = np.degrees(np.arctan2(np.abs(dy), np.abs(dx)))
     return values[(angles >= minimum) & (angles <= maximum)]
+
+
+def filter_toward_vanishing_point(
+    segments, width, height, x_fraction=0.5, y_fraction=0.36, tolerance_fraction=0.07
+):
+    """Keep segments whose supporting line passes near a road vanishing point."""
+    width, height = int(width), int(height)
+    if width <= 0 or height <= 0:
+        raise ValueError("Image width and height must be positive.")
+    if not (0 <= x_fraction <= 1 and 0 <= y_fraction <= 1):
+        raise ValueError("Vanishing point fractions must be between 0 and 1.")
+    if not math.isfinite(tolerance_fraction) or tolerance_fraction < 0:
+        raise ValueError("tolerance_fraction must be finite and non-negative.")
+
+    values = _as_segments(segments)
+    if not len(values):
+        return values
+    dx = values[:, 2] - values[:, 0]
+    dy = values[:, 3] - values[:, 1]
+    lengths = np.hypot(dx, dy)
+    vp_x = x_fraction * (width - 1)
+    vp_y = y_fraction * (height - 1)
+    distance = np.abs(dx * (vp_y - values[:, 1]) - dy * (vp_x - values[:, 0]))
+    distance /= np.maximum(lengths, _EPSILON)
+    return values[distance <= tolerance_fraction * min(width, height)]
 
 
 def _as_segments(segments):

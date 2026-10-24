@@ -103,7 +103,7 @@ def test_circle_filter_accepts_empty_candidates_and_validates_edge_map():
 def test_road_roi_is_an_internal_lower_trapezoid():
     np.testing.assert_array_equal(
         line_ops.road_roi_polygon((100, 200)),
-        [[50, 42], [149, 42], [199, 99], [0, 99]],
+        [[80, 36], [119, 36], [199, 99], [0, 99]],
     )
     with pytest.raises(ValueError):
         line_ops.road_roi_polygon((0, 200))
@@ -116,4 +116,12 @@ def test_road_angle_filter_removes_horizontal_and_near_vertical_segments():
     )
     np.testing.assert_array_equal(
         line_ops.filter_by_angle(segments), [[0, 100, 100, 0]]
+    )
+
+
+def test_vanishing_point_filter_keeps_road_aligned_lines():
+    segments = np.asarray([[0, 70, 199, 0], [0, 95, 199, 60]])
+    np.testing.assert_array_equal(
+        line_ops.filter_toward_vanishing_point(segments, width=200, height=100),
+        [[0, 70, 199, 0]],
     )

@@ -17,6 +17,7 @@ from capsules.HoughTransform.src.utils.line_ops import (
     clip_segments,
     filter_by_angle,
     filter_circles_by_edge_support,
+    filter_toward_vanishing_point,
     merge_segments,
     road_roi_polygon,
 )
@@ -189,9 +190,12 @@ class HoughTransform(Capsule):
                 merge_distance=merge_distance,
             )
             segments = filter_by_angle(segments)
+            height, width = gray.shape
+            segments = filter_toward_vanishing_point(
+                segments, width=width, height=height
+            )
             # Avoid overwhelming the output with low-value fragments on dense textures.
             segments = segments[:MAX_OUTPUT_LINES]
-            height, width = gray.shape
             segments = clip_segments(segments, width=width, height=height)
             for line in segments:
                 x1, y1, x2, y2 = map(int, line)
