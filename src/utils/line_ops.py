@@ -10,6 +10,40 @@ _PAIR_BLOCK_SIZE = 256
 _MAX_MERGE_SEGMENTS = 4000
 
 
+def road_roi_polygon(shape):
+    """Return the internal trapezoid used to focus line detection on the road."""
+    if shape is None or len(shape) < 2:
+        raise ValueError("Image shape must contain height and width.")
+    height, width = int(shape[0]), int(shape[1])
+    if height <= 0 or width <= 0:
+        raise ValueError("Image height and width must be positive.")
+
+    last_x, last_y = width - 1, height - 1
+    top_y = int(round(last_y * 0.42))
+    top_left = int(round(last_x * 0.25))
+    top_right = int(round(last_x * 0.75))
+    return np.asarray(
+        [(top_left, top_y), (top_right, top_y), (last_x, last_y), (0, last_y)],
+        dtype=np.int32,
+    )
+
+
+def filter_by_angle(segments, min_angle=12.0, max_angle=85.0):
+    """Keep line segments in the internal road-line angle range."""
+    minimum, maximum = float(min_angle), float(max_angle)
+    if not (math.isfinite(minimum) and math.isfinite(maximum)):
+        raise ValueError("Line angle bounds must be finite.")
+    if not 0 <= minimum <= maximum <= 90:
+        raise ValueError("Line angles must satisfy 0 <= min <= max <= 90.")
+    values = _as_segments(segments)
+    if not len(values):
+        return values
+    dx = values[:, 2] - values[:, 0]
+    dy = values[:, 3] - values[:, 1]
+    angles = np.degrees(np.arctan2(np.abs(dy), np.abs(dx)))
+    return values[(angles >= minimum) & (angles <= maximum)]
+
+
 def _as_segments(segments):
     values = np.asarray(segments)
     if values.size == 0:

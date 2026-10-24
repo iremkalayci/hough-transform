@@ -98,3 +98,22 @@ def test_circle_filter_accepts_empty_candidates_and_validates_edge_map():
     assert line_ops.filter_circles_by_edge_support([], np.zeros((5, 5))).shape == (0, 3)
     with pytest.raises(ValueError):
         line_ops.filter_circles_by_edge_support([[2, 2, 1]], np.zeros((0, 0)))
+
+
+def test_road_roi_is_an_internal_lower_trapezoid():
+    np.testing.assert_array_equal(
+        line_ops.road_roi_polygon((100, 200)),
+        [[50, 42], [149, 42], [199, 99], [0, 99]],
+    )
+    with pytest.raises(ValueError):
+        line_ops.road_roi_polygon((0, 200))
+
+
+def test_road_angle_filter_removes_horizontal_and_near_vertical_segments():
+    segments = np.asarray(
+        [[0, 0, 100, 0], [0, 100, 100, 0], [50, 0, 52, 100]],
+        dtype=np.float64,
+    )
+    np.testing.assert_array_equal(
+        line_ops.filter_by_angle(segments), [[0, 100, 100, 0]]
+    )

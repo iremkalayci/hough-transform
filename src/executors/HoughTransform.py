@@ -15,8 +15,10 @@ from capsules.HoughTransform.src.models.PackageModel import Detection, PackageMo
 from capsules.HoughTransform.src.utils.response import build_response
 from capsules.HoughTransform.src.utils.line_ops import (
     clip_segments,
+    filter_by_angle,
     filter_circles_by_edge_support,
     merge_segments,
+    road_roi_polygon,
 )
 
 
@@ -160,6 +162,11 @@ class HoughTransform(Capsule):
             self.canny_high,
         )
 
+        # Keep the road-focused ROI internal so users do not need to tune a mask.
+        roi = np.zeros(edges.shape, dtype=np.uint8)
+        cv2.fillPoly(roi, [road_roi_polygon(gray.shape)], 255)
+        edges = cv2.bitwise_and(edges, roi)
+
         lines = cv2.HoughLinesP(
             edges,
             rho=1,
@@ -175,11 +182,13 @@ class HoughTransform(Capsule):
 
         if lines is not None:
             segments = np.asarray(lines).reshape(-1, 4)
+            segments = filter_by_angle(segments)
             segments = merge_segments(
                 segments,
                 max_gap=max_line_gap,
                 merge_distance=merge_distance,
             )
+            segments = filter_by_angle(segments)
             # Avoid overwhelming the output with low-value fragments on dense textures.
             segments = segments[:MAX_OUTPUT_LINES]
             height, width = gray.shape
