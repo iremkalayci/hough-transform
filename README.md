@@ -18,13 +18,15 @@ The only user-facing setting is the `Task` dropdown: `LineDetection` or `CircleD
 
 `outputDetections` is the line/no-line signal: a non-empty list means the detector found one or more line candidates; an empty list means it found none. The annotated image shows those candidates. This is generic geometric line detection, not semantic classification: Hough can treat long straight edges in foliage, road texture, text, or buildings as lines. It cannot decide that a candidate is specifically a lane marking without a separate domain-specific classifier.
 
-Circle detection uses fixed defaults (`dp=1.2`, `param1=100`, `param2=30`, automatic minimum center distance, and unrestricted radius bounds). The package keeps both detection tasks under the single Task dropdown.
+Circle detection uses fixed defaults (`dp=1.2`, `param1=100`, `param2=30`, automatic minimum center distance, and unrestricted radius bounds). Candidate circles must also have edge pixels supporting enough of their circumference, and strongly overlapping candidates are suppressed. This reduces circles caused by shadows and texture, but it cannot guarantee that every candidate is a real coin; Hough is a geometric detector, not a coin classifier. The package keeps both detection tasks under the single Task dropdown.
 
-The capsule converts supported floating-point frames to `uint8` for OpenCV processing, scaling normalized `[0, 1]` pixels to `[0, 255]`. Annotated output is restored to the input frame's dtype and range. It validates image data and internal detector defaults before calling OpenCV. Circle detections use a size-aware minimum distance and remove strongly overlapping candidates. Detection confidence is left unset because the Hough accumulator is not a calibrated confidence score.
+The capsule converts supported floating-point frames to `uint8` for OpenCV processing, scaling normalized `[0, 1]` pixels to `[0, 255]`. Annotated output is restored to the input frame's dtype and range. It validates image data and internal detector defaults before calling OpenCV. Detection confidence is left unset because the Hough accumulator is not a calibrated confidence score.
 
 NovaVision supplies its private `sdks.novavision` package in the host runtime. The PyPI distribution named `sdk` is unrelated and is not installed by this capsule.
 
 The NovaVision SDK is not vendored in this repository, so migration behavior for saved Flow nodes created before the configuration was simplified has not been verified. If an existing Flow reports missing configuration values, refresh or recreate the Hough Transform node and select its task again so the current schema is loaded.
+
+`grpcio` is declared as a capsule dependency. If NovaVision still logs `No module named 'grpc'` after deployment, the running environment did not install that dependency (or is reusing an older build); it is a deployment/runtime image issue separate from Hough image processing. Confirm the rebuilt capsule environment includes `grpcio` before treating that warning as resolved.
 
 ## Development checks
 

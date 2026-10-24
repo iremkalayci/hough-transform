@@ -1,6 +1,6 @@
 from typing import List, Literal, Optional, Union
 
-from pydantic import validator
+from pydantic import root_validator, validator
 
 from sdks.novavision.src.base.model import (
     Config,
@@ -166,3 +166,22 @@ class PackageModel(Package):
     configs: PackageConfigs
     type: Literal["capsule"] = "capsule"
     name: Literal["HoughTransform"] = "HoughTransform"
+
+    @root_validator(pre=True)
+    def normalize_empty_nested_configs(cls, values):
+        """Normalize NovaVision's empty-list form before nested union parsing."""
+        def normalize(value):
+            if isinstance(value, dict):
+                return {
+                    key: (
+                        {}
+                        if key == "configs" and isinstance(item, list) and not item
+                        else normalize(item)
+                    )
+                    for key, item in value.items()
+                }
+            if isinstance(value, list):
+                return [normalize(item) for item in value]
+            return value
+
+        return normalize(values)

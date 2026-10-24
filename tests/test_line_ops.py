@@ -78,3 +78,23 @@ def test_three_thousand_segments_complete_in_reasonable_time():
     elapsed = time.perf_counter() - started
     assert result.ndim == 2 and result.shape[1] == 4
     assert elapsed < 8
+
+
+def test_circle_filter_keeps_edge_supported_circle_and_rejects_texture_candidate():
+    edges = np.zeros((100, 100), dtype=np.uint8)
+    angles = np.linspace(0, 2 * np.pi, 72, endpoint=False)
+    x = np.rint(50 + 20 * np.cos(angles)).astype(int)
+    y = np.rint(50 + 20 * np.sin(angles)).astype(int)
+    edges[y, x] = 255
+
+    result = line_ops.filter_circles_by_edge_support(
+        [[50, 50, 20], [20, 20, 12]], edges, min_support=0.30
+    )
+
+    np.testing.assert_array_equal(result, [[50, 50, 20]])
+
+
+def test_circle_filter_accepts_empty_candidates_and_validates_edge_map():
+    assert line_ops.filter_circles_by_edge_support([], np.zeros((5, 5))).shape == (0, 3)
+    with pytest.raises(ValueError):
+        line_ops.filter_circles_by_edge_support([[2, 2, 1]], np.zeros((0, 0)))

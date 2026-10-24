@@ -15,6 +15,7 @@ from capsules.HoughTransform.src.models.PackageModel import Detection, PackageMo
 from capsules.HoughTransform.src.utils.response import build_response
 from capsules.HoughTransform.src.utils.line_ops import (
     clip_segments,
+    filter_circles_by_edge_support,
     merge_segments,
 )
 
@@ -231,7 +232,10 @@ class HoughTransform(Capsule):
             raise ValueError("MaxRadius must be >= MinRadius.")
 
         blurred = cv2.medianBlur(gray, 5)
-        min_dist = self.min_dist or max(1.0, gray.shape[0] / 8.0)
+        min_dimension = min(gray.shape)
+        # Avoid nearby shadow/texture arcs becoming extra circles in common
+        # inspection images, while keeping the spacing automatic for users.
+        min_dist = self.min_dist or max(1.0, min_dimension * 0.25)
 
         circles = cv2.HoughCircles(
             blurred,
@@ -250,13 +254,17 @@ class HoughTransform(Capsule):
 
         if circles is not None:
             height, width = gray.shape
+            edge_map = cv2.Canny(blurred, self.param1 / 2.0, self.param1)
+            candidates = filter_circles_by_edge_support(
+                circles[0], edge_map, min_support=0.30
+            )
 
             accepted_circles = []
-            for circle in np.round(circles[0]).astype(int):
+            for circle in np.round(candidates).astype(int):
                 x, y, radius = map(int, circle)
                 if radius <= 0:
                     continue
-                if any(np.hypot(x - old_x, y - old_y) < 0.75 * (radius + old_radius)
+                if any(np.hypot(x - old_x, y - old_y) < 0.90 * (radius + old_radius)
                        for old_x, old_y, old_radius in accepted_circles):
                     continue
                 accepted_circles.append((x, y, radius))

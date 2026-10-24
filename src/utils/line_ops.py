@@ -215,3 +215,44 @@ def clip_segments(segments, width, height):
     values[:, (0, 2)] = np.clip(values[:, (0, 2)], 0, width - 1)
     values[:, (1, 3)] = np.clip(values[:, (1, 3)], 0, height - 1)
     return np.rint(values).astype(np.int32)
+
+
+def filter_circles_by_edge_support(circles, edge_map, min_support=0.30, samples=72,
+                                   radial_tolerance=2):
+    """Keep circle candidates whose circumference is supported by image edges.
+
+    ``circles`` is an ``(N, 3)`` array of ``x, y, radius`` candidates and
+    ``edge_map`` is a binary edge image. A sample counts as supported when an
+    edge lies within ``radial_tolerance`` pixels of the candidate circumference.
+    """
+    candidates = np.asarray(circles, dtype=np.float64)
+    edges = np.asarray(edge_map)
+    if candidates.size == 0:
+        return np.empty((0, 3), dtype=np.float64)
+    if candidates.ndim != 2 or candidates.shape[1] != 3:
+        raise ValueError("circles must have shape (N, 3).")
+    if edges.ndim != 2 or not edges.size:
+        raise ValueError("edge_map must be a non-empty 2D array.")
+    if not 0 <= min_support <= 1:
+        raise ValueError("min_support must be between 0 and 1.")
+    if samples < 8 or radial_tolerance < 0:
+        raise ValueError("samples must be >= 8 and radial_tolerance non-negative.")
+
+    angles = np.linspace(0.0, 2.0 * math.pi, int(samples), endpoint=False)
+    offsets = np.arange(-int(radial_tolerance), int(radial_tolerance) + 1)
+    height, width = edges.shape
+    supported = []
+    for x, y, radius in candidates:
+        if not np.all(np.isfinite((x, y, radius))) or radius <= 0:
+            continue
+        xs = np.rint(x + np.cos(angles)[:, None] * (radius + offsets)).astype(int)
+        ys = np.rint(y + np.sin(angles)[:, None] * (radius + offsets)).astype(int)
+        valid = (xs >= 0) & (xs < width) & (ys >= 0) & (ys < height)
+        hits = np.zeros((len(angles), len(offsets)), dtype=bool)
+        hits[valid] = edges[ys[valid], xs[valid]] != 0
+        ratio = float(np.mean(np.any(hits, axis=1)))
+        if ratio >= min_support:
+            supported.append((x, y, radius, ratio))
+
+    supported.sort(key=lambda item: (-item[3], -item[2], item[1], item[0]))
+    return np.asarray([item[:3] for item in supported], dtype=np.float64).reshape(-1, 3)
