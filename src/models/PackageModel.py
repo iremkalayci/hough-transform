@@ -97,6 +97,11 @@ class LineDetectionRequest(Request):
     inputs: Optional[PackageInputs] = None
     configs: LineDetectionConfigs
 
+    @validator("configs", pre=True)
+    def normalize_empty_configs(cls, value):
+        # NovaVision serializes a task with no visible tuning fields as [].
+        return {} if isinstance(value, list) and not value else value
+
     class Config:
         json_schema_extra = {"target": "configs"}
 
@@ -104,6 +109,10 @@ class LineDetectionRequest(Request):
 class CircleDetectionRequest(Request):
     inputs: Optional[PackageInputs] = None
     configs: CircleDetectionConfigs
+
+    @validator("configs", pre=True)
+    def normalize_empty_configs(cls, value):
+        return {} if isinstance(value, list) and not value else value
 
     class Config:
         json_schema_extra = {"target": "configs"}
