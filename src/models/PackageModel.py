@@ -1,6 +1,6 @@
 from typing import List, Literal, Optional, Union
 
-from pydantic import Field, validator
+from pydantic import validator
 
 from sdks.novavision.src.base.model import (
     Config,
@@ -69,223 +69,18 @@ class OutputDetections(Output):
         title = "Detections"
 
 
-class CannyLow(Config):
-    name: Literal["CannyLow"] = "CannyLow"
-    value: int = Field(default=50, ge=0, le=255)
-    type: Literal["number"] = "number"
-    field: Literal["textInput"] = "textInput"
-
-    class Config:
-        title = "Canny Low Threshold"
-
-
-class CannyHigh(Config):
-    name: Literal["CannyHigh"] = "CannyHigh"
-    value: int = Field(default=150, ge=1, le=255)
-    type: Literal["number"] = "number"
-    field: Literal["textInput"] = "textInput"
-
-    class Config:
-        title = "Canny High Threshold"
-
-
-class HoughThreshold(Config):
-    name: Literal["HoughThreshold"] = "HoughThreshold"
-    value: int = Field(default=50, ge=1)
-    type: Literal["number"] = "number"
-    field: Literal["textInput"] = "textInput"
-
-    class Config:
-        title = "Hough Threshold"
-
-
-class MinLineLength(Config):
-    name: Literal["MinLineLength"] = "MinLineLength"
-    value: int = Field(default=50, ge=1)
-    type: Literal["number"] = "number"
-    field: Literal["textInput"] = "textInput"
-
-    class Config:
-        title = "Minimum Line Length"
-
-
-class MaxLineGap(Config):
-    name: Literal["MaxLineGap"] = "MaxLineGap"
-    value: int = Field(default=10, ge=0)
-    type: Literal["number"] = "number"
-    field: Literal["textInput"] = "textInput"
-
-    class Config:
-        title = "Maximum Line Gap"
-
-
-class MergeDistance(Config):
-    name: Literal["MergeDistance"] = "MergeDistance"
-    value: float = Field(default=10.0, ge=0)
-    type: Literal["number"] = "number"
-    field: Literal["textInput"] = "textInput"
-
-    class Config:
-        title = "Merge Distance (px, 0 = off)"
-
-
-class MinAngle(Config):
-    name: Literal["MinAngle"] = "MinAngle"
-    value: float = Field(default=0.0, ge=0, le=90)
-    type: Literal["number"] = "number"
-    field: Literal["textInput"] = "textInput"
-
-    class Config:
-        title = "Minimum Line Angle (deg)"
-
-
-class MaxAngle(Config):
-    name: Literal["MaxAngle"] = "MaxAngle"
-    value: float = Field(default=90.0, ge=0, le=90)
-    type: Literal["number"] = "number"
-    field: Literal["textInput"] = "textInput"
-
-    class Config:
-        title = "Maximum Line Angle (deg)"
-
-
-class RoiLeft(Config):
-    name: Literal["RoiLeft"] = "RoiLeft"
-    value: float = Field(default=0.0, ge=0, le=100)
-    type: Literal["number"] = "number"
-    field: Literal["textInput"] = "textInput"
-
-    class Config:
-        title = "ROI Left (%)"
-
-
-class RoiTop(Config):
-    name: Literal["RoiTop"] = "RoiTop"
-    value: float = Field(default=0.0, ge=0, le=100)
-    type: Literal["number"] = "number"
-    field: Literal["textInput"] = "textInput"
-
-    class Config:
-        title = "ROI Top (%)"
-
-
-class RoiRight(Config):
-    name: Literal["RoiRight"] = "RoiRight"
-    value: float = Field(default=100.0, ge=0, le=100)
-    type: Literal["number"] = "number"
-    field: Literal["textInput"] = "textInput"
-
-    class Config:
-        title = "ROI Right (%)"
-
-
-class RoiBottom(Config):
-    name: Literal["RoiBottom"] = "RoiBottom"
-    value: float = Field(default=100.0, ge=0, le=100)
-    type: Literal["number"] = "number"
-    field: Literal["textInput"] = "textInput"
-
-    class Config:
-        title = "ROI Bottom (%)"
-
-
-class RoiTopInset(Config):
-    name: Literal["RoiTopInset"] = "RoiTopInset"
-    value: float = Field(default=0.0, ge=0, le=50)
-    type: Literal["number"] = "number"
-    field: Literal["textInput"] = "textInput"
-
-    class Config:
-        title = "ROI Top Inset (%)"
-
-
-class DP(Config):
-    name: Literal["DP"] = "DP"
-    value: float = Field(default=1.2, gt=0)
-    type: Literal["number"] = "number"
-    field: Literal["textInput"] = "textInput"
-
-    class Config:
-        title = "Inverse Accumulator Ratio"
-
-
-class MinDist(Config):
-    name: Literal["MinDist"] = "MinDist"
-    value: float = Field(default=0.0, ge=0)
-    type: Literal["number"] = "number"
-    field: Literal["textInput"] = "textInput"
-
-    class Config:
-        title = "Minimum Circle Distance"
-
-
-class Param1(Config):
-    name: Literal["Param1"] = "Param1"
-    value: float = Field(default=100.0, gt=0)
-    type: Literal["number"] = "number"
-    field: Literal["textInput"] = "textInput"
-
-    class Config:
-        title = "Circle Edge Threshold"
-
-
-class Param2(Config):
-    name: Literal["Param2"] = "Param2"
-    value: float = Field(default=30.0, gt=0)
-    type: Literal["number"] = "number"
-    field: Literal["textInput"] = "textInput"
-
-    class Config:
-        title = "Circle Accumulator Threshold"
-
-
-class MinRadius(Config):
-    name: Literal["MinRadius"] = "MinRadius"
-    value: int = Field(default=0, ge=0)
-    type: Literal["number"] = "number"
-    field: Literal["textInput"] = "textInput"
-
-    class Config:
-        title = "Minimum Radius"
-
-
-class MaxRadius(Config):
-    name: Literal["MaxRadius"] = "MaxRadius"
-    value: int = Field(default=0, ge=0)
-    type: Literal["number"] = "number"
-    field: Literal["textInput"] = "textInput"
-
-    class Config:
-        title = "Maximum Radius"
-
-
 class PackageInputs(Inputs):
     inputImage: InputImage
 
 
 class LineDetectionConfigs(Configs):
-    cannyLow: CannyLow
-    cannyHigh: CannyHigh
-    houghThreshold: HoughThreshold
-    minLineLength: MinLineLength
-    maxLineGap: MaxLineGap
-    mergeDistance: MergeDistance
-    minAngle: MinAngle
-    maxAngle: MaxAngle
-    roiLeft: RoiLeft
-    roiTop: RoiTop
-    roiRight: RoiRight
-    roiBottom: RoiBottom
-    roiTopInset: RoiTopInset
+    """Keep detector tuning internal; expose only the Task selector in the UI."""
+    pass
 
 
 class CircleDetectionConfigs(Configs):
-    dp: DP
-    minDist: MinDist
-    param1: Param1
-    param2: Param2
-    minRadius: MinRadius
-    maxRadius: MaxRadius
+    """Use capsule defaults instead of exposing OpenCV tuning controls."""
+    pass
 
 
 class LineDetectionOutputs(Outputs):

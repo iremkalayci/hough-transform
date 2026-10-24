@@ -1,4 +1,4 @@
-"""SDK-independent helpers for Hough line filtering and segment merging."""
+"""SDK-independent helpers for merging and clipping Hough line segments."""
 
 import math
 
@@ -8,95 +8,6 @@ import numpy as np
 _EPSILON = 1e-9
 _PAIR_BLOCK_SIZE = 256
 _MAX_MERGE_SEGMENTS = 4000
-
-
-def _image_size(shape):
-    if shape is None or len(shape) < 2:
-        raise ValueError("Image shape must contain height and width.")
-    height, width = int(shape[0]), int(shape[1])
-    if height <= 0 or width <= 0:
-        raise ValueError("Image height and width must be positive.")
-    return height, width
-
-
-def _validate_roi(left, top, right, bottom, top_inset):
-    values = (left, top, right, bottom, top_inset)
-    if not all(math.isfinite(float(value)) for value in values):
-        raise ValueError("ROI percentages must be finite numbers.")
-    left, top, right, bottom, top_inset = map(float, values)
-    if not (0 <= left < right <= 100):
-        raise ValueError("ROI horizontal bounds must satisfy 0 <= left < right <= 100.")
-    if not (0 <= top < bottom <= 100):
-        raise ValueError("ROI vertical bounds must satisfy 0 <= top < bottom <= 100.")
-    if not 0 <= top_inset <= 50:
-        raise ValueError("ROI top inset must be between 0 and 50 percent.")
-    return left, top, right, bottom, top_inset
-
-
-def is_full_roi(left, top, right, bottom, top_inset=0):
-    """Return whether the ROI settings keep the complete image rectangle."""
-    return (
-        float(left) == 0.0
-        and float(top) == 0.0
-        and float(right) == 100.0
-        and float(bottom) == 100.0
-        and float(top_inset) == 0.0
-    )
-
-
-def roi_polygon(shape, left, top, right, bottom, top_inset=0):
-    """Return an int32 ROI polygon; percentages describe the kept image area."""
-    height, width = _image_size(shape)
-    left, top, right, bottom, top_inset = _validate_roi(
-        left, top, right, bottom, top_inset
-    )
-
-    x_left = int(round(left * (width - 1) / 100.0))
-    x_right = int(round(right * (width - 1) / 100.0))
-    y_top = int(round(top * (height - 1) / 100.0))
-    y_bottom = int(round(bottom * (height - 1) / 100.0))
-    if x_left >= x_right or y_top >= y_bottom:
-        raise ValueError("ROI is empty at this image size.")
-
-    inset = int(round((x_right - x_left) * top_inset / 100.0))
-    polygon = np.asarray(
-        [
-            (x_left + inset, y_top),
-            (x_right - inset, y_top),
-            (x_right, y_bottom),
-            (x_left, y_bottom),
-        ],
-        dtype=np.int32,
-    )
-    x = polygon[:, 0].astype(np.float64)
-    y = polygon[:, 1].astype(np.float64)
-    area_twice = float(np.sum(x * np.roll(y, -1) - y * np.roll(x, -1)))
-    if abs(area_twice) <= _EPSILON:
-        raise ValueError("ROI is empty at this image size.")
-    return polygon
-
-
-def roi_mask(shape, left, top, right, bottom, top_inset=0):
-    """Rasterize the kept ROI as a uint8 mask containing 0 and 255 values."""
-    height, width = _image_size(shape)
-    polygon = roi_polygon(shape, left, top, right, bottom, top_inset)
-    if is_full_roi(left, top, right, bottom, top_inset):
-        return np.full((height, width), 255, dtype=np.uint8)
-
-    yy, xx = np.ogrid[:height, :width]
-    inside = np.ones((height, width), dtype=bool)
-    px = polygon[:, 0]
-    py = polygon[:, 1]
-    signed_area = np.sum(px * np.roll(py, -1) - py * np.roll(px, -1))
-    orientation = 1.0 if signed_area >= 0 else -1.0
-    for index in range(len(polygon)):
-        x1, y1 = float(px[index]), float(py[index])
-        x2, y2 = float(px[(index + 1) % len(polygon)]), float(
-            py[(index + 1) % len(polygon)]
-        )
-        cross = (x2 - x1) * (yy - y1) - (y2 - y1) * (xx - x1)
-        inside &= orientation * cross >= -_EPSILON
-    return inside.astype(np.uint8) * 255
 
 
 def _as_segments(segments):
@@ -110,31 +21,6 @@ def _as_segments(segments):
     if not np.all(np.isfinite(values)):
         raise ValueError("Segment coordinates must be finite.")
     return values
-
-
-def segment_angles_deg(segments):
-    """Return unsigned line angles from the horizontal, in the range [0, 90]."""
-    values = _as_segments(segments)
-    if not len(values):
-        return np.empty((0,), dtype=np.float64)
-    dx = values[:, 2] - values[:, 0]
-    dy = values[:, 3] - values[:, 1]
-    return np.degrees(np.arctan2(np.abs(dy), np.abs(dx)))
-
-
-def filter_by_angle(segments, min_angle, max_angle):
-    """Keep segments whose unsigned angle from horizontal is in the inclusive range."""
-    minimum, maximum = float(min_angle), float(max_angle)
-    if not (math.isfinite(minimum) and math.isfinite(maximum)):
-        raise ValueError("Line angle bounds must be finite.")
-    if not 0 <= minimum <= maximum <= 90:
-        raise ValueError("Line angles must satisfy 0 <= min_angle <= max_angle <= 90.")
-    values = _as_segments(segments)
-    if not len(values):
-        return values
-    angles = segment_angles_deg(values)
-    keep = (angles >= minimum - _EPSILON) & (angles <= maximum + _EPSILON)
-    return values[keep]
 
 
 def _canonicalize(segments):

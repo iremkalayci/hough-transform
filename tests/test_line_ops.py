@@ -24,11 +24,6 @@ def test_does_not_merge_segments_that_diverge_beyond_angle_tolerance():
     assert len(result) == 2
 
 
-def test_does_not_merge_segments_outside_angle_filter():
-    segments = np.array([[0, 0, 100, 0], [0, 0, 100, 20]])
-    np.testing.assert_array_equal(line_ops.filter_by_angle(segments, 10, 90), [segments[1]])
-
-
 def test_merge_distance_controls_parallel_stripes():
     stripes = np.array([[0, 10, 100, 10], [0, 22, 100, 22]])
     assert len(line_ops.merge_segments(stripes, 0, 14)) == 1
@@ -64,35 +59,6 @@ def test_empty_and_single_segment_inputs():
     )
     with pytest.raises(ValueError):
         line_ops.merge_segments([], -1, 10)
-
-
-def test_segment_angles_and_inclusive_filtering():
-    segments = np.array([[0, 0, 10, 0], [0, 0, 10, 10], [10, 10, 0, 0]])
-    np.testing.assert_allclose(line_ops.segment_angles_deg(segments), [0, 45, 45])
-    np.testing.assert_array_equal(line_ops.filter_by_angle(segments, 45, 45), segments[1:])
-
-
-def test_roi_rectangle_mask_keeps_requested_area():
-    mask = line_ops.roi_mask((100, 200), 25, 20, 75, 80)
-    assert mask.dtype == np.uint8
-    assert mask[50, 100] == 255
-    assert mask[10, 100] == 0
-    assert mask[50, 10] == 0
-
-
-def test_roi_trapezoid_mask_uses_top_inset():
-    mask = line_ops.roi_mask((100, 100), 0, 0, 100, 100, 20)
-    assert mask[10, 5] == 0
-    assert mask[50, 50] == 255
-    assert mask[50, 15] == 255
-
-
-def test_full_roi_is_all_included_and_invalid_roi_raises():
-    np.testing.assert_array_equal(line_ops.roi_mask((4, 5), 0, 0, 100, 100), 255)
-    with pytest.raises(ValueError):
-        line_ops.roi_mask((20, 20), 50, 0, 50, 100)
-    with pytest.raises(ValueError):
-        line_ops.roi_mask((20, 20), 0, 0, 100, 100, 51)
 
 
 def test_clip_segments_clamps_to_image_bounds_without_mutating_source():

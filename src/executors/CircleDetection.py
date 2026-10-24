@@ -12,12 +12,13 @@ class CircleDetection(HoughTransform):
 
     def __init__(self, request, bootstrap):
         super().__init__(request, bootstrap)
-        self.dp = self.request.get_param("DP")
-        self.min_dist = self.request.get_param("MinDist")
-        self.param1 = self.request.get_param("Param1")
-        self.param2 = self.request.get_param("Param2")
-        self.min_radius = self.request.get_param("MinRadius")
-        self.max_radius = self.request.get_param("MaxRadius")
+        # Keep OpenCV tuning internal so users only choose the detection task.
+        self.dp = 1.2
+        self.min_dist = 0.0
+        self.param1 = 100.0
+        self.param2 = 30.0
+        self.min_radius = 0
+        self.max_radius = 0
 
 
 if __name__ == "__main__":

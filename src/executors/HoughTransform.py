@@ -15,12 +15,11 @@ from capsules.HoughTransform.src.models.PackageModel import Detection, PackageMo
 from capsules.HoughTransform.src.utils.response import build_response
 from capsules.HoughTransform.src.utils.line_ops import (
     clip_segments,
-    filter_by_angle,
-    is_full_roi,
     merge_segments,
-    roi_polygon,
-    roi_mask,
 )
+
+
+MAX_OUTPUT_LINES = 25
 
 
 class HoughTransform(Capsule):
@@ -148,6 +147,10 @@ class HoughTransform(Capsule):
     def detect_lines(self, frame):
         gray = self._to_gray(frame)
         self._validate_line_params()
+        min_dimension = min(gray.shape)
+        min_line_length = max(self.min_line_length, int(round(min_dimension * 0.20)))
+        max_line_gap = max(self.max_line_gap, int(round(min_dimension * 0.04)))
+        merge_distance = max(self.merge_distance, min_dimension * 0.02)
 
         smoothed = cv2.GaussianBlur(gray, (5, 5), 0)
         edges = cv2.Canny(
@@ -156,30 +159,13 @@ class HoughTransform(Capsule):
             self.canny_high,
         )
 
-        if not is_full_roi(
-            self.roi_left,
-            self.roi_top,
-            self.roi_right,
-            self.roi_bottom,
-            self.roi_top_inset,
-        ):
-            mask = roi_mask(
-                gray.shape,
-                self.roi_left,
-                self.roi_top,
-                self.roi_right,
-                self.roi_bottom,
-                self.roi_top_inset,
-            )
-            edges = cv2.bitwise_and(edges, mask)
-
         lines = cv2.HoughLinesP(
             edges,
             rho=1,
             theta=np.pi / 180,
             threshold=self.hough_threshold,
-            minLineLength=self.min_line_length,
-            maxLineGap=self.max_line_gap,
+            minLineLength=min_line_length,
+            maxLineGap=max_line_gap,
         )
 
         output = self._to_color(frame)
@@ -188,13 +174,13 @@ class HoughTransform(Capsule):
 
         if lines is not None:
             segments = np.asarray(lines).reshape(-1, 4)
-            segments = filter_by_angle(segments, self.min_angle, self.max_angle)
             segments = merge_segments(
                 segments,
-                max_gap=self.max_line_gap,
-                merge_distance=self.merge_distance,
+                max_gap=max_line_gap,
+                merge_distance=merge_distance,
             )
-            segments = filter_by_angle(segments, self.min_angle, self.max_angle)
+            # Avoid overwhelming the output with low-value fragments on dense textures.
+            segments = segments[:MAX_OUTPUT_LINES]
             height, width = gray.shape
             segments = clip_segments(segments, width=width, height=height)
             for line in segments:
@@ -225,18 +211,6 @@ class HoughTransform(Capsule):
             raise ValueError("HoughThreshold must be positive.")
         if self.min_line_length <= 0 or self.max_line_gap < 0:
             raise ValueError("Invalid line length or gap.")
-        if not np.isfinite(self.merge_distance) or self.merge_distance < 0:
-            raise ValueError("MergeDistance must be finite and non-negative.")
-        if not (0 <= self.min_angle <= self.max_angle <= 90):
-            raise ValueError("Line angles must satisfy 0 <= MinAngle <= MaxAngle <= 90.")
-        roi_polygon(
-            (100_000, 100_000),
-            self.roi_left,
-            self.roi_top,
-            self.roi_right,
-            self.roi_bottom,
-            self.roi_top_inset,
-        )
 
     def detect_circles(self, frame):
         gray = self._to_gray(frame)

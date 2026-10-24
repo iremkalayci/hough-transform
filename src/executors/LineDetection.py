@@ -12,19 +12,13 @@ class LineDetection(HoughTransform):
 
     def __init__(self, request, bootstrap):
         super().__init__(request, bootstrap)
-        self.canny_low = self.request.get_param("CannyLow")
-        self.canny_high = self.request.get_param("CannyHigh")
-        self.hough_threshold = self.request.get_param("HoughThreshold")
-        self.min_line_length = self.request.get_param("MinLineLength")
-        self.max_line_gap = self.request.get_param("MaxLineGap")
-        self.merge_distance = self.request.get_param("MergeDistance")
-        self.min_angle = self.request.get_param("MinAngle")
-        self.max_angle = self.request.get_param("MaxAngle")
-        self.roi_left = self.request.get_param("RoiLeft")
-        self.roi_top = self.request.get_param("RoiTop")
-        self.roi_right = self.request.get_param("RoiRight")
-        self.roi_bottom = self.request.get_param("RoiBottom")
-        self.roi_top_inset = self.request.get_param("RoiTopInset")
+        # Keep OpenCV tuning internal so users only choose the detection task.
+        self.canny_low = 50
+        self.canny_high = 150
+        self.hough_threshold = 100
+        self.min_line_length = 50
+        self.max_line_gap = 10
+        self.merge_distance = 4.0
 
 
 if __name__ == "__main__":
