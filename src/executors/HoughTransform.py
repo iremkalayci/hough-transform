@@ -14,7 +14,9 @@ from sdks.novavision.src.base.model import BoundingBox
 from capsules.HoughTransform.src.models.PackageModel import Detection, PackageModel
 from capsules.HoughTransform.src.utils.response import build_response
 from capsules.HoughTransform.src.utils.line_ops import (
+    clip_above_horizon,
     clip_segments,
+    estimate_vanishing_point,
     filter_by_angle,
     filter_circles_by_edge_support,
     filter_toward_vanishing_point,
@@ -23,7 +25,7 @@ from capsules.HoughTransform.src.utils.line_ops import (
 )
 
 
-MAX_OUTPUT_LINES = 25
+MAX_OUTPUT_LINES = 8
 
 
 class HoughTransform(Capsule):
@@ -183,18 +185,39 @@ class HoughTransform(Capsule):
 
         if lines is not None:
             segments = np.asarray(lines).reshape(-1, 4)
-            segments = filter_by_angle(segments)
+            # Road markings can be diagonal at the edges or nearly vertical in
+            # the centre of the lane.  The following VP stage distinguishes
+            # these from horizontal road texture and unrelated edges.
+            segments = filter_by_angle(segments, min_angle=12.0, max_angle=90.0)
             segments = merge_segments(
                 segments,
                 max_gap=max_line_gap,
                 merge_distance=merge_distance,
             )
-            segments = filter_by_angle(segments)
             height, width = gray.shape
-            segments = filter_toward_vanishing_point(
+            segments = filter_by_angle(segments, min_angle=12.0, max_angle=90.0)
+
+            # Do not assume that every camera has the same horizon position.
+            # Estimate the vanishing point from the candidate segments and keep
+            # only lines that actually converge there.  The existing centred
+            # filter remains a conservative fallback for sparse/simple images.
+            vanishing_point, support = estimate_vanishing_point(
                 segments, width=width, height=height
             )
-            # Avoid overwhelming the output with low-value fragments on dense textures.
+            if vanishing_point is not None:
+                segments = clip_above_horizon(
+                    segments[support], horizon_y=vanishing_point[1]
+                )
+            elif len(segments) > 3:
+                segments = filter_toward_vanishing_point(
+                    segments,
+                    width=width,
+                    height=height,
+                    tolerance_fraction=0.05,
+                )
+
+            # Present a compact set of the strongest merged candidates rather
+            # than drawing every short asphalt or texture fragment.
             segments = segments[:MAX_OUTPUT_LINES]
             segments = clip_segments(segments, width=width, height=height)
             for line in segments:

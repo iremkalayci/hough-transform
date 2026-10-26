@@ -69,6 +69,109 @@ def filter_toward_vanishing_point(
     return values[distance <= tolerance_fraction * min(width, height)]
 
 
+def estimate_vanishing_point(
+    segments,
+    width,
+    height,
+    x_bounds=(0.30, 0.70),
+    y_bounds=(0.20, 0.58),
+    tolerance_fraction=0.035,
+    max_candidates=64,
+):
+    """Estimate a road vanishing point from intersections of long segments.
+
+    Only points in the central upper portion of the road ROI are considered.
+    A candidate wins when the greatest total segment length points towards it;
+    this makes isolated asphalt cracks less influential than coherent lane edges.
+    Returns ``(point, support_mask)`` or ``(None, all_false_mask)``.
+    """
+    width, height = int(width), int(height)
+    if width <= 0 or height <= 0:
+        raise ValueError("Image width and height must be positive.")
+    if not (0 <= x_bounds[0] < x_bounds[1] <= 1):
+        raise ValueError("x_bounds must be increasing image fractions.")
+    if not (0 <= y_bounds[0] < y_bounds[1] <= 1):
+        raise ValueError("y_bounds must be increasing image fractions.")
+    if not math.isfinite(tolerance_fraction) or tolerance_fraction <= 0:
+        raise ValueError("tolerance_fraction must be a positive finite number.")
+
+    values = _as_segments(segments)
+    empty_mask = np.zeros(len(values), dtype=bool)
+    if len(values) < 2:
+        return None, empty_mask
+
+    vectors = values[:, 2:4] - values[:, :2]
+    lengths = np.hypot(vectors[:, 0], vectors[:, 1])
+    usable = np.flatnonzero(lengths > _EPSILON)
+    if len(usable) < 2:
+        return None, empty_mask
+    longest = usable[np.argsort(-lengths[usable], kind="stable")[:max_candidates]]
+
+    # ax + by + c = 0 for every supporting line.
+    starts = values[longest, :2]
+    ends = values[longest, 2:4]
+    homogeneous_starts = np.column_stack((starts, np.ones(len(longest))))
+    homogeneous_ends = np.column_stack((ends, np.ones(len(longest))))
+    lines = np.cross(homogeneous_starts, homogeneous_ends)
+    first, second = np.triu_indices(len(longest), k=1)
+    intersections = np.cross(lines[first], lines[second])
+    finite = np.abs(intersections[:, 2]) > _EPSILON
+    intersections = intersections[finite]
+    if not len(intersections):
+        return None, empty_mask
+    points = intersections[:, :2] / intersections[:, 2:3]
+
+    minimum_x, maximum_x = x_bounds[0] * (width - 1), x_bounds[1] * (width - 1)
+    minimum_y, maximum_y = y_bounds[0] * (height - 1), y_bounds[1] * (height - 1)
+    inside = (
+        (points[:, 0] >= minimum_x) & (points[:, 0] <= maximum_x)
+        & (points[:, 1] >= minimum_y) & (points[:, 1] <= maximum_y)
+    )
+    points = points[inside]
+    if not len(points):
+        return None, empty_mask
+
+    midpoints = (values[:, :2] + values[:, 2:4]) * 0.5
+    tolerance = tolerance_fraction * min(width, height)
+    best_score, best_point, best_mask = 0.0, None, empty_mask
+    for point in points:
+        distance = np.abs(
+            vectors[:, 0] * (point[1] - values[:, 1])
+            - vectors[:, 1] * (point[0] - values[:, 0])
+        ) / np.maximum(lengths, _EPSILON)
+        support = (distance <= tolerance) & (midpoints[:, 1] >= point[1])
+        if np.count_nonzero(support) < 2:
+            continue
+        score = float(np.sum(lengths[support]))
+        if score > best_score:
+            best_score, best_point, best_mask = score, point, support
+
+    if best_point is None:
+        return None, empty_mask
+    return (float(best_point[0]), float(best_point[1])), best_mask
+
+
+def clip_above_horizon(segments, horizon_y):
+    """Remove portions above a detected road horizon from line segments."""
+    values = _as_segments(segments)
+    if not len(values):
+        return values
+    horizon_y = float(horizon_y)
+    result = []
+    for x1, y1, x2, y2 in values:
+        if y1 < horizon_y and y2 < horizon_y:
+            continue
+        if (y1 < horizon_y) != (y2 < horizon_y):
+            ratio = (horizon_y - y1) / (y2 - y1)
+            crossing_x = x1 + ratio * (x2 - x1)
+            if y1 < horizon_y:
+                x1, y1 = crossing_x, horizon_y
+            else:
+                x2, y2 = crossing_x, horizon_y
+        result.append((x1, y1, x2, y2))
+    return _as_segments(result)
+
+
 def _as_segments(segments):
     values = np.asarray(segments)
     if values.size == 0:

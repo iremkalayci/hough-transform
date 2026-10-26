@@ -125,3 +125,33 @@ def test_vanishing_point_filter_keeps_road_aligned_lines():
         line_ops.filter_toward_vanishing_point(segments, width=200, height=100),
         [[0, 70, 199, 0]],
     )
+
+
+def test_estimated_vanishing_point_keeps_converging_lane_candidates():
+    segments = np.asarray(
+        [
+            [0, 199, 98, 70],
+            [199, 199, 102, 70],
+            [50, 199, 99, 70],
+            [150, 199, 101, 70],
+            [0, 190, 190, 180],  # road texture: does not converge at the VP
+        ],
+        dtype=np.float64,
+    )
+    point, support = line_ops.estimate_vanishing_point(
+        segments, width=200, height=200
+    )
+
+    assert point is not None
+    assert 90 <= point[0] <= 110
+    assert 60 <= point[1] <= 90
+    np.testing.assert_array_equal(support, [True, True, True, True, False])
+
+
+def test_clip_above_horizon_drops_and_trims_segments():
+    segments = np.asarray(
+        [[0, 20, 20, 80], [0, 10, 20, 30], [0, 10, 20, 15]], dtype=np.float64
+    )
+    result = line_ops.clip_above_horizon(segments, horizon_y=25)
+
+    np.testing.assert_allclose(result, [[1.6666667, 25, 20, 80], [15, 25, 20, 30]])
