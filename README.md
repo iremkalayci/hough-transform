@@ -14,7 +14,16 @@ Each standard NovaVision bounding box contains `left`, `top`, `width`, and `heig
 
 ## Configuration
 
-The only user-facing setting is the `Task` dropdown: `LineDetection` or `CircleDetection`. OpenCV tuning values are internal defaults; there are no user-adjustable ROI, threshold, angle, radius, or merge fields. Line detection processes the complete image using Gaussian denoising, Canny edges, and OpenCV's probabilistic Hough transform (`cv2.HoughLinesP()`). A primary Hough pass finds stable segments; a second lower-threshold pass recovers short or interrupted segments such as dashed markings. Compatible collinear segments are merged and the longest 100 are returned to keep the NovaVision response bounded.
+Choose the `Task` first, then select a profile. Each profile supplies practical defaults, while `Custom` exposes every relevant OpenCV control. This keeps the first use simple without hardcoding a single configuration for every image source.
+
+| Task | Preset profiles | Custom controls |
+|---|---|---|
+| Line Detection | `General Lines`, `Broken / Dashed Lines`, `Long, Strong Lines` | Canny low/high thresholds, Hough vote threshold, minimum line length, maximum line gap, segment merge distance, and maximum output lines |
+| Circle Detection | `General Circles`, `Coins / Circular Parts` | `dp`, minimum circle distance, edge threshold (`param1`), accumulator threshold (`param2`), minimum/maximum radius, and maximum output circles |
+
+Every configuration field has a short and long description in the capsule schema. The descriptions explain both the visual effect and the trade-off—for example, lowering a Hough vote threshold can recover faint segments but also raises false positives. Line detection processes the complete image using Gaussian denoising, Canny edges, and OpenCV's probabilistic Hough transform (`cv2.HoughLinesP()`). A primary Hough pass finds stable segments; a second lower-threshold pass recovers short or interrupted segments such as dashed markings. Compatible collinear segments are merged before the configured output limit is applied.
+
+The complete input/configuration/output contract is documented in [Configuration Design](docs/CONFIGURATION_DESIGN.md).
 
 `outputDetections` is the line/no-line signal: a non-empty list means the detector found one or more line candidates; an empty list means it found none. The annotated image shows those candidates. Line mode is a general straight-segment detector: it does not assume a road, a region of interest, a vanishing point, a line colour, or an orientation. Accordingly, it may also detect real straight edges in textured scenes; separating semantic classes such as *lane marking* from other valid lines would require a dedicated lane-detection model rather than Hough geometry alone.
 

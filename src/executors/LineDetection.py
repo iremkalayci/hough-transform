@@ -10,15 +10,52 @@ from capsules.HoughTransform.src.executors.HoughTransform import HoughTransform
 class LineDetection(HoughTransform):
     task = "LineDetection"
 
+    PRESETS = {
+        "GeneralLines": {
+            "canny_low": 50,
+            "canny_high": 150,
+            "hough_threshold": 50,
+            "min_line_length": 30,
+            "max_line_gap": 20,
+            "merge_distance": 4.0,
+            "max_output_lines": 100,
+        },
+        "BrokenLines": {
+            "canny_low": 35,
+            "canny_high": 110,
+            "hough_threshold": 25,
+            "min_line_length": 15,
+            "max_line_gap": 40,
+            "merge_distance": 8.0,
+            "max_output_lines": 150,
+        },
+        "StrictLines": {
+            "canny_low": 75,
+            "canny_high": 200,
+            "hough_threshold": 80,
+            "min_line_length": 60,
+            "max_line_gap": 10,
+            "merge_distance": 2.0,
+            "max_output_lines": 50,
+        },
+    }
+
     def __init__(self, request, bootstrap):
         super().__init__(request, bootstrap)
-        # Keep OpenCV tuning internal so users only choose the detection task.
-        self.canny_low = 50
-        self.canny_high = 150
-        self.hough_threshold = 100
-        self.min_line_length = 50
-        self.max_line_gap = 10
-        self.merge_distance = 4.0
+        profile = self._active_task_configs().lineProfile.value
+
+        if profile.name == "CustomLineSettings":
+            self.canny_low = profile.cannyLow.value
+            self.canny_high = profile.cannyHigh.value
+            self.hough_threshold = profile.houghThreshold.value
+            self.min_line_length = profile.minLineLength.value
+            self.max_line_gap = profile.maxLineGap.value
+            self.merge_distance = profile.mergeDistance.value
+            self.max_output_lines = profile.maxOutputLines.value
+        else:
+            settings = self.PRESETS[profile.name]
+            for name, value in settings.items():
+                setattr(self, name, value)
 
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@ from capsules.HoughTransform.src.utils.line_ops import (
 
 
 MAX_OUTPUT_LINES = 100
+MAX_OUTPUT_CIRCLES = 100
 
 
 class HoughTransform(Capsule):
@@ -31,6 +32,11 @@ class HoughTransform(Capsule):
 
         self.image = self.request.get_param("inputImage")
         self.detections = []
+
+    def _active_task_configs(self):
+        """Return the validated config branch selected for the active task."""
+        executor = self.request.model.configs.executor.value
+        return executor.value.configs
 
     @staticmethod
     def bootstrap(config: dict) -> dict:
@@ -203,7 +209,7 @@ class HoughTransform(Capsule):
             height, width = gray.shape
             # ``merge_segments`` orders results by length. A hard cap keeps a
             # dense texture image from producing an unbounded SDK response.
-            segments = segments[:MAX_OUTPUT_LINES]
+            segments = segments[:getattr(self, "max_output_lines", MAX_OUTPUT_LINES)]
             segments = clip_segments(segments, width=width, height=height)
             for line in segments:
                 x1, y1, x2, y2 = map(int, line)
@@ -233,6 +239,8 @@ class HoughTransform(Capsule):
             raise ValueError("HoughThreshold must be positive.")
         if self.min_line_length <= 0 or self.max_line_gap < 0:
             raise ValueError("Invalid line length or gap.")
+        if self.merge_distance < 0 or self.max_output_lines <= 0:
+            raise ValueError("Merge distance and maximum output lines must be non-negative.")
 
     def detect_circles(self, frame):
         gray = self._to_gray(frame)
@@ -282,6 +290,10 @@ class HoughTransform(Capsule):
 
             accepted_circles = []
             for circle in np.round(candidates).astype(int):
+                if len(accepted_circles) >= getattr(
+                    self, "max_output_circles", MAX_OUTPUT_CIRCLES
+                ):
+                    break
                 x, y, radius = map(int, circle)
                 if radius <= 0:
                     continue
@@ -321,6 +333,8 @@ class HoughTransform(Capsule):
             raise ValueError("Circle radii cannot be negative.")
         elif self.max_radius and self.max_radius < self.min_radius:
             raise ValueError("MaxRadius must be >= MinRadius.")
+        elif self.max_output_circles <= 0:
+            raise ValueError("Maximum output circles must be positive.")
 
         input_is_list = isinstance(self.image, list)
         input_images = self.image if input_is_list else [self.image]
