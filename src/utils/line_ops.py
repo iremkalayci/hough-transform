@@ -226,6 +226,7 @@ def filter_road_lane_segments(
     center_tolerance_ratio=0.10,
     vanishing_left_ratio=0.38,
     vanishing_right_ratio=0.62,
+    max_slope_x_per_y=2.8,
 ):
     """Keep segments compatible with a forward-facing road perspective.
 
@@ -243,6 +244,8 @@ def filter_road_lane_segments(
         raise ValueError("Center tolerance ratio must be between 0 and 0.5.")
     if not 0 <= vanishing_left_ratio < vanishing_right_ratio <= 1:
         raise ValueError("Vanishing-point band ratios are invalid.")
+    if not math.isfinite(max_slope_x_per_y) or max_slope_x_per_y <= 0:
+        raise ValueError("Maximum road-line slope must be positive and finite.")
 
     values = _as_segments(segments)
     if not len(values):
@@ -268,7 +271,7 @@ def filter_road_lane_segments(
         # Horizontal texture edges and near-horizontal cracks are not lanes.
         # Perspective lane boundaries can have a large horizontal change
         # per vertical pixel. The old 1.5 limit rejected real road edges.
-        if abs(slope_x_per_y) > 2.8:
+        if abs(slope_x_per_y) > max_slope_x_per_y:
             continue
 
         projected_x = x1 + slope_x_per_y * (horizon_y - y1)
@@ -288,6 +291,68 @@ def filter_road_lane_segments(
             accepted.append((x1, y1, x2, y2))
 
     return _ordered_int_segments(accepted)
+
+
+def fit_road_lane_boundaries(segments, width, height, horizon_ratio=0.35):
+    """Fit one representative left and right boundary from accepted Hough segments.
+
+    Uses length-weighted least squares in x(y) space, then extrapolates each
+    side across the visible road region. Near-vertical centre/dashed markings
+    are left as individual segments so dashed paint is not drawn as a solid line.
+    """
+    values = _as_segments(segments)
+    width, height = int(width), int(height)
+    if width <= 0 or height <= 0:
+        raise ValueError("Image width and height must be positive.")
+    if not 0.0 < horizon_ratio < 1.0:
+        raise ValueError("Horizon ratio must be between 0 and 1.")
+    if not len(values):
+        return np.empty((0, 4), dtype=np.int32)
+
+    left_points, left_weights = [], []
+    right_points, right_weights = [], []
+    centre_segments = []
+    centre_x = width * 0.5
+    for x1, y1, x2, y2 in values:
+        length = math.hypot(x2 - x1, y2 - y1)
+        if length <= _EPSILON:
+            continue
+        midpoint_x = (x1 + x2) * 0.5
+        dx_dy = (x2 - x1) / (y2 - y1) if abs(y2 - y1) > _EPSILON else math.copysign(float("inf"), x2 - x1)
+        points = [(x1, y1), (x2, y2)]
+        if midpoint_x < centre_x and dx_dy < -0.04:
+            left_points.extend(points)
+            left_weights.extend([length, length])
+        elif midpoint_x >= centre_x and dx_dy > 0.04:
+            right_points.extend(points)
+            right_weights.extend([length, length])
+        else:
+            centre_segments.append((x1, y1, x2, y2))
+
+    fitted = []
+    y_top = height * float(horizon_ratio)
+    y_bottom = height - 1
+    for points, weights in ((left_points, left_weights), (right_points, right_weights)):
+        if len(points) < 2:
+            continue
+        points = np.asarray(points, dtype=np.float64)
+        weights = np.sqrt(np.asarray(weights, dtype=np.float64))
+        # Fit x = a*y + b; weighted least squares tolerates multiple short segments.
+        design = np.column_stack((points[:, 1], np.ones(len(points))))
+        try:
+            a, b = np.linalg.lstsq(design * weights[:, None], points[:, 0] * weights, rcond=None)[0]
+        except np.linalg.LinAlgError:
+            continue
+        if not np.all(np.isfinite((a, b))):
+            continue
+        x_top = float(a * y_top + b)
+        x_bottom = float(a * y_bottom + b)
+        # Do not draw extrapolated lines outside the image or backwards across the road.
+        if not (-width <= x_top <= 2 * width and -width <= x_bottom <= 2 * width):
+            continue
+        fitted.append((x_top, y_top, x_bottom, y_bottom))
+
+    return _ordered_int_segments(fitted + centre_segments)
 
 
 def filter_circles_by_edge_support(circles, edge_map, min_support=0.30, samples=72,
