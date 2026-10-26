@@ -41,16 +41,7 @@ class LineDetection(HoughTransform):
             "merge_distance": 2.0,
             "max_output_lines": 50,
         },
-        "RoadLaneMarkings": {
-            "line_mode": "road_lanes",
-            "canny_low": 50,
-            "canny_high": 150,
-            "hough_threshold": 30,
-            "min_line_length": 20,
-            "max_line_gap": 45,
-            "merge_distance": 6.0,
-            "max_output_lines": 20,
-        },
+        "RoadLaneMarkings": {"line_mode": "road_lanes"},
     }
 
     def __init__(self, request, bootstrap):
@@ -70,6 +61,20 @@ class LineDetection(HoughTransform):
             settings = self.PRESETS[profile.name]
             for name, value in settings.items():
                 setattr(self, name, value)
+
+            if profile.name == "RoadLaneMarkings":
+                self.canny_low = profile.cannyLow.value
+                self.canny_high = profile.cannyHigh.value
+                self.hough_threshold = profile.houghThreshold.value
+                self.min_line_length = profile.minLineLength.value
+                self.max_line_gap = profile.maxLineGap.value
+                self.merge_distance = profile.mergeDistance.value
+                self.max_output_lines = profile.maxOutputLines.value
+                self.road_roi_top_ratio = profile.roiTopRatio.value
+                self.road_roi_top_left = profile.roiTopLeft.value
+                self.road_roi_top_right = profile.roiTopRight.value
+                self.road_white_lightness_min = profile.whiteLightnessMin.value
+                self.road_white_saturation_max = profile.whiteSaturationMax.value
 
 
 if __name__ == "__main__":
