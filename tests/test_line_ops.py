@@ -148,3 +148,20 @@ def test_circle_filter_accepts_empty_candidates_and_validates_edge_map():
     assert line_ops.filter_circles_by_edge_support([], np.zeros((5, 5))).shape == (0, 3)
     with pytest.raises(ValueError):
         line_ops.filter_circles_by_edge_support([[2, 2, 1]], np.zeros((0, 0)))
+
+
+
+def test_fit_road_boundaries_extends_left_and_right_to_bottom_and_keeps_centre_dash():
+    segments = np.array([
+        [420, 180, 300, 320],
+        [305, 315, 220, 500],
+        [430, 180, 560, 320],
+        [555, 315, 650, 500],
+        [495, 350, 500, 420],
+    ])
+    result = line_ops.fit_road_lane_boundaries(segments, width=1000, height=600, horizon_ratio=0.30)
+    assert len(result) == 3
+    # The fitted left and right boundaries reach the image bottom.
+    assert sum(int(line[3]) == 599 for line in result) == 2
+    # The short centre dash remains a short segment, rather than being extended.
+    assert any(abs(int(line[3]) - int(line[1])) < 100 for line in result)
