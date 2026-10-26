@@ -23,10 +23,11 @@ from capsules.HoughTransform.src.utils.line_ops import (
     line_marking_scores,
     merge_segments,
     road_roi_polygon,
+    select_road_markings,
 )
 
 
-MAX_OUTPUT_LINES = 8
+MAX_OUTPUT_LINES = 6
 
 
 class HoughTransform(Capsule):
@@ -211,7 +212,7 @@ class HoughTransform(Capsule):
             vp_candidates = segments[long_markings]
             if len(vp_candidates) < 2:
                 vp_candidates = segments
-            vanishing_point, support = estimate_vanishing_point(
+            vanishing_point, _ = estimate_vanishing_point(
                 vp_candidates, width=width, height=height
             )
             if vanishing_point is not None:
@@ -235,21 +236,19 @@ class HoughTransform(Capsule):
                 )
 
             if len(segments):
-                lengths = np.hypot(
-                    segments[:, 2] - segments[:, 0],
-                    segments[:, 3] - segments[:, 1],
-                )
-                marking_scores = line_marking_scores(gray, segments)
-                # On road scenes favour actual painted markings and reject
-                # short seams near the horizon. If no bright candidates exist,
-                # retain the generic line behaviour for non-road images.
-                painted = (marking_scores >= 0.58) & (lengths >= height * 0.30)
-                if np.count_nonzero(painted):
-                    segments = segments[painted]
-                    lengths = lengths[painted]
-                    marking_scores = marking_scores[painted]
-                priority = marking_scores + 0.15 * np.minimum(lengths / height, 1.0)
-                segments = segments[np.argsort(-priority, kind="stable")]
+                if vanishing_point is not None:
+                    selected = select_road_markings(
+                        gray, segments, width, height, vanishing_point
+                    )
+                    if len(selected):
+                        segments = selected
+                    else:
+                        # Non-road/simple line images do not necessarily have
+                        # bright lane paint, so retain a generic fallback.
+                        marking_scores = line_marking_scores(gray, segments)
+                        segments = segments[
+                            np.argsort(-marking_scores, kind="stable")
+                        ]
 
             # Present a compact set of the strongest merged candidates rather
             # than drawing every short asphalt or texture fragment.

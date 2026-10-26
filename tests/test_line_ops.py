@@ -167,3 +167,29 @@ def test_line_marking_scores_prefer_bright_painted_stripe_over_dark_seam():
 
     assert scores[0] > 0.95
     assert scores[1] < 0.45
+
+
+def test_select_road_markings_keeps_outer_lanes_and_short_centre_dashes():
+    image = np.full((200, 200), 70, dtype=np.uint8)
+    segments = np.asarray(
+        [
+            [0, 199, 95, 70],
+            [199, 199, 105, 70],
+            [100, 95, 100, 125],
+            [100, 140, 100, 170],
+            [25, 180, 100, 80],  # dark asphalt seam
+        ],
+        dtype=np.float64,
+    )
+
+    for x1, y1, x2, y2 in segments[:4]:
+        samples = np.linspace(0.0, 1.0, 200)
+        xs = np.rint(x1 + (x2 - x1) * samples).astype(int)
+        ys = np.rint(y1 + (y2 - y1) * samples).astype(int)
+        image[np.clip(ys, 0, 199), np.clip(xs, 0, 199)] = 255
+
+    selected = line_ops.select_road_markings(
+        image, segments, width=200, height=200, vanishing_point=(100, 65)
+    )
+
+    np.testing.assert_array_equal(selected, segments[:4])

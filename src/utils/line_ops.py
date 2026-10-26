@@ -210,6 +210,59 @@ def line_marking_scores(gray, segments, half_width=3, max_samples=96):
     return scores
 
 
+def select_road_markings(gray, segments, width, height, vanishing_point):
+    """Return the two outer lane markings and visible centre-dash segments.
+
+    The side markings are expected to be long diagonal painted segments. Centre
+    markings are normally dashed, so they are intentionally allowed to be
+    short but must be bright, nearly vertical, and close to the vanishing point
+    axis.  This avoids rejecting the centre stripe merely because it is broken.
+    """
+    width, height = int(width), int(height)
+    if width <= 0 or height <= 0:
+        raise ValueError("Image width and height must be positive.")
+    if vanishing_point is None or len(vanishing_point) != 2:
+        raise ValueError("vanishing_point must contain x and y coordinates.")
+
+    values = _as_segments(segments)
+    if not len(values):
+        return np.empty((0, 4), dtype=np.float64)
+    vp_x = float(vanishing_point[0])
+    vectors = values[:, 2:4] - values[:, :2]
+    lengths = np.hypot(vectors[:, 0], vectors[:, 1])
+    angles = np.degrees(np.arctan2(np.abs(vectors[:, 1]), np.abs(vectors[:, 0])))
+    midpoints = (values[:, :2] + values[:, 2:4]) * 0.5
+    scores = line_marking_scores(gray, values)
+    painted = scores >= 0.58
+    priority = scores + 0.15 * np.minimum(lengths / height, 1.0)
+
+    selected = []
+    side = painted & (lengths >= height * 0.22) & (angles < 70.0)
+    for mask in (side & (midpoints[:, 0] < vp_x), side & (midpoints[:, 0] > vp_x)):
+        candidates = np.flatnonzero(mask)
+        if len(candidates):
+            selected.append(int(candidates[np.argmax(priority[candidates])]))
+
+    centre = (
+        painted
+        & (lengths >= max(12.0, height * 0.035))
+        & (angles >= 70.0)
+        & (np.abs(midpoints[:, 0] - vp_x) <= width * 0.08)
+    )
+    centre_indices = np.flatnonzero(centre)
+    if len(centre_indices):
+        centre_order = centre_indices[
+            np.argsort(-priority[centre_indices], kind="stable")
+        ]
+        # Four detections preserve the visible dashed centre marking without
+        # fabricating one uninterrupted line through its gaps.
+        selected.extend(map(int, centre_order[:4]))
+
+    if not selected:
+        return np.empty((0, 4), dtype=np.float64)
+    return values[np.asarray(selected, dtype=np.int64)]
+
+
 def _as_segments(segments):
     values = np.asarray(segments)
     if values.size == 0:
