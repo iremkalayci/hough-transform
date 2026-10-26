@@ -218,6 +218,20 @@ class StrictLineProfile(Config):
         )
 
 
+class RoadLaneProfile(Config):
+    name: Literal["RoadLaneMarkings"] = "RoadLaneMarkings"
+    value: Literal["RoadLaneMarkings"] = "RoadLaneMarkings"
+    type: Literal["string"] = "string"
+    field: Literal["option"] = "option"
+
+    class Config:
+        title = "Road Lane Markings"
+        json_schema_extra = _description(
+            "Road-specific lane-marking extraction",
+            "Uses a lower-road trapezoid, white/yellow marking evidence, and perspective-consistent segment filtering. This profile suppresses trees, sky, and asphalt cracks, but is intentionally for forward-facing road scenes rather than arbitrary line images.",
+        )
+
+
 class CustomLineProfile(Config):
     name: Literal["CustomLineSettings"] = "CustomLineSettings"
     cannyLow: CannyLow = Field(default_factory=CannyLow)
@@ -245,6 +259,7 @@ class LineProfile(Config):
         GeneralLineProfile,
         BrokenLineProfile,
         StrictLineProfile,
+        RoadLaneProfile,
         CustomLineProfile,
     ] = Field(default_factory=GeneralLineProfile)
     type: Literal["object"] = "object"

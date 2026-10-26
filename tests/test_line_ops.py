@@ -68,6 +68,31 @@ def test_clip_segments_clamps_to_image_bounds_without_mutating_source():
     np.testing.assert_array_equal(source, original)
 
 
+def test_road_lane_filter_keeps_left_right_and_dashed_centre_markings():
+    segments = np.array(
+        [
+            [480, 360, 120, 790],  # left lane boundary
+            [520, 360, 880, 790],  # right lane boundary
+            [500, 500, 504, 700],  # centre dash
+        ]
+    )
+    result = line_ops.filter_road_lane_segments(segments, width=1000, height=800)
+    assert len(result) == 3
+
+
+def test_road_lane_filter_rejects_horizon_trees_and_asphalt_cracks():
+    segments = np.array(
+        [
+            [0, 350, 1000, 350],  # horizon / tree line
+            [100, 680, 850, 720],  # near-horizontal asphalt crack
+            [80, 450, 80, 760],  # vertical non-centre object
+            [50, 400, 110, 780],  # wrong direction on left side
+        ]
+    )
+    result = line_ops.filter_road_lane_segments(segments, width=1000, height=800)
+    assert result.shape == (0, 4)
+
+
 def test_three_thousand_segments_complete_in_reasonable_time():
     rng = np.random.default_rng(7)
     starts = rng.integers(0, 1000, size=(3000, 2))

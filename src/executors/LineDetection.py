@@ -12,6 +12,7 @@ class LineDetection(HoughTransform):
 
     PRESETS = {
         "GeneralLines": {
+            "line_mode": "general",
             "canny_low": 50,
             "canny_high": 150,
             "hough_threshold": 50,
@@ -21,6 +22,7 @@ class LineDetection(HoughTransform):
             "max_output_lines": 100,
         },
         "BrokenLines": {
+            "line_mode": "general",
             "canny_low": 35,
             "canny_high": 110,
             "hough_threshold": 25,
@@ -30,6 +32,7 @@ class LineDetection(HoughTransform):
             "max_output_lines": 150,
         },
         "StrictLines": {
+            "line_mode": "general",
             "canny_low": 75,
             "canny_high": 200,
             "hough_threshold": 80,
@@ -38,6 +41,16 @@ class LineDetection(HoughTransform):
             "merge_distance": 2.0,
             "max_output_lines": 50,
         },
+        "RoadLaneMarkings": {
+            "line_mode": "road_lanes",
+            "canny_low": 50,
+            "canny_high": 150,
+            "hough_threshold": 30,
+            "min_line_length": 20,
+            "max_line_gap": 45,
+            "merge_distance": 6.0,
+            "max_output_lines": 20,
+        },
     }
 
     def __init__(self, request, bootstrap):
@@ -45,6 +58,7 @@ class LineDetection(HoughTransform):
         profile = self._active_task_configs().lineProfile.value
 
         if profile.name == "CustomLineSettings":
+            self.line_mode = "general"
             self.canny_low = profile.cannyLow.value
             self.canny_high = profile.cannyHigh.value
             self.hough_threshold = profile.houghThreshold.value

@@ -16,6 +16,7 @@ from capsules.HoughTransform.src.utils.response import build_response
 from capsules.HoughTransform.src.utils.line_ops import (
     clip_segments,
     filter_circles_by_edge_support,
+    filter_road_lane_segments,
     merge_segments,
 )
 
@@ -166,12 +167,15 @@ class HoughTransform(Capsule):
         broken_min_length = max(10, min_line_length // 2)
         broken_max_gap = max_line_gap * 2
 
-        smoothed = cv2.GaussianBlur(gray, (5, 5), 0)
-        edges = cv2.Canny(
-            smoothed,
-            self.canny_low,
-            self.canny_high,
-        )
+        if getattr(self, "line_mode", "general") == "road_lanes":
+            edges = self._road_lane_edges(frame)
+        else:
+            smoothed = cv2.GaussianBlur(gray, (5, 5), 0)
+            edges = cv2.Canny(
+                smoothed,
+                self.canny_low,
+                self.canny_high,
+            )
 
         # The primary pass finds stable full segments. A lower-threshold pass
         # recovers short or interrupted segments such as dashed road markings.
@@ -201,12 +205,18 @@ class HoughTransform(Capsule):
             segments = np.concatenate(
                 [np.asarray(item).reshape(-1, 4) for item in line_sets], axis=0
             )
+            height, width = gray.shape
+            if getattr(self, "line_mode", "general") == "road_lanes":
+                segments = filter_road_lane_segments(
+                    segments,
+                    width=width,
+                    height=height,
+                )
             segments = merge_segments(
                 segments,
                 max_gap=broken_max_gap,
                 merge_distance=merge_distance,
             )
-            height, width = gray.shape
             # ``merge_segments`` orders results by length. A hard cap keeps a
             # dense texture image from producing an unbounded SDK response.
             segments = segments[:getattr(self, "max_output_lines", MAX_OUTPUT_LINES)]
@@ -231,6 +241,48 @@ class HoughTransform(Capsule):
                 )
 
         return output, detections
+
+    def _road_lane_edges(self, frame):
+        """Return Canny edges limited to likely painted road markings.
+
+        This is intentionally used only by the ``Road Lane Markings`` preset.
+        General Hough line profiles continue to work on every image pixel.
+        """
+        color = self._to_color(frame)
+        height, width = color.shape[:2]
+        hls = cv2.cvtColor(color, cv2.COLOR_BGR2HLS)
+        hue, lightness, saturation = cv2.split(hls)
+
+        # White and yellow are the two common reflective lane-marking colour
+        # families.  Restricting evidence before Canny prevents asphalt cracks
+        # and foliage edges from reaching HoughLinesP at all.
+        white = (lightness >= 160) & (saturation <= 150)
+        yellow = (
+            (hue >= 15)
+            & (hue <= 40)
+            & (lightness >= 90)
+            & (saturation >= 70)
+        )
+        markings = np.zeros((height, width), dtype=np.uint8)
+        markings[white | yellow] = 255
+        markings = cv2.GaussianBlur(markings, (5, 5), 0)
+        edges = cv2.Canny(markings, self.canny_low, self.canny_high)
+
+        # A perspective trapezoid contains the drivable road below the horizon.
+        # Its top is deliberately wider than a vanishing-point line so short
+        # dashed centre markings are retained.
+        mask = np.zeros_like(edges)
+        polygon = np.array(
+            [[
+                (0, height - 1),
+                (int(width * 0.38), int(height * 0.40)),
+                (int(width * 0.62), int(height * 0.40)),
+                (width - 1, height - 1),
+            ]],
+            dtype=np.int32,
+        )
+        cv2.fillPoly(mask, polygon, 255)
+        return cv2.bitwise_and(edges, mask)
 
     def _validate_line_params(self):
         if not (0 <= self.canny_low < self.canny_high <= 255):

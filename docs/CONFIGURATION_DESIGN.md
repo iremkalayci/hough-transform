@@ -30,7 +30,8 @@ Implementation: Gaussian denoising → Canny edge detection → two `cv2.HoughLi
 |---|---|
 | `General Lines` | Balanced default for ordinary straight segments. |
 | `Broken / Dashed Lines` | More sensitive profile for interrupted paint, dashes, and partially occluded lines. |
-| `Long, Strong Lines` | Conservative profile for noisy or highly textured images. |
+| `Long, Strong Lines` | Conservative general-line profile for noisy or highly textured images. It does not semantically identify lanes. |
+| `Road Lane Markings` | Forward-facing road preset: white/yellow marking mask, lower-road trapezoid, and perspective-consistent lane filtering; retains left/right boundaries and near-vertical dashed centre markings. |
 | `Custom` | Shows all parameters below. |
 
 | Custom setting | Validation | Effect |
@@ -73,4 +74,4 @@ Implementation: median blur → `cv2.HoughCircles()` → circumference edge-supp
 
 ## Limits
 
-Hough Transform detects geometric lines and circles, not semantic objects. A general line configuration can correctly return straight texture edges in addition to lane markings. Selecting a stricter profile or adjusting Custom settings controls that trade-off; semantic lane classification requires a separate model.
+Hough Transform detects geometric lines and circles, not semantic objects. A general line configuration can correctly return straight texture edges in addition to lane markings. `Road Lane Markings` applies geometric and colour assumptions that are appropriate for a conventional forward-facing road view; it is not selected for arbitrary line images. Selecting a stricter profile or adjusting Custom settings controls the general-line trade-off; semantic lane classification across arbitrary viewpoints, weather, and marking colours requires a separate model.

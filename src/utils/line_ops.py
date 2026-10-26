@@ -217,6 +217,77 @@ def clip_segments(segments, width, height):
     return np.rint(values).astype(np.int32)
 
 
+def filter_road_lane_segments(
+    segments,
+    width,
+    height,
+    horizon_ratio=0.40,
+    min_bottom_ratio=0.50,
+    center_tolerance_ratio=0.12,
+    vanishing_left_ratio=0.20,
+    vanishing_right_ratio=0.80,
+):
+    """Keep segments compatible with a forward-facing road perspective.
+
+    The function deliberately works only on Hough geometry; the caller is
+    responsible for supplying road/marking edges.  A valid lane candidate must
+    reach the lower road area, extrapolate towards the central horizon band,
+    and have the expected left, right, or near-vertical centre-line direction.
+    """
+    width, height = int(width), int(height)
+    if width <= 0 or height <= 0:
+        raise ValueError("Image width and height must be positive.")
+    if not 0 < horizon_ratio < min_bottom_ratio < 1:
+        raise ValueError("Road horizon and lower-road ratios are invalid.")
+    if not 0 < center_tolerance_ratio < 0.5:
+        raise ValueError("Center tolerance ratio must be between 0 and 0.5.")
+    if not 0 <= vanishing_left_ratio < vanishing_right_ratio <= 1:
+        raise ValueError("Vanishing-point band ratios are invalid.")
+
+    values = _as_segments(segments)
+    if not len(values):
+        return np.empty((0, 4), dtype=np.int32)
+
+    centre_x = width * 0.5
+    horizon_y = height * float(horizon_ratio)
+    lower_road_y = height * float(min_bottom_ratio)
+    centre_band = width * float(center_tolerance_ratio)
+    vanishing_left = width * float(vanishing_left_ratio)
+    vanishing_right = width * float(vanishing_right_ratio)
+    accepted = []
+
+    for segment in values:
+        x1, y1, x2, y2 = segment
+        if y1 > y2:
+            x1, y1, x2, y2 = x2, y2, x1, y1
+        dy = y2 - y1
+        if dy <= _EPSILON or y2 < lower_road_y:
+            continue
+
+        slope_x_per_y = (x2 - x1) / dy
+        # Horizontal texture edges and near-horizontal cracks are not lanes.
+        if abs(slope_x_per_y) > 1.5:
+            continue
+
+        projected_x = x1 + slope_x_per_y * (horizon_y - y1)
+        if not vanishing_left <= projected_x <= vanishing_right:
+            continue
+
+        midpoint_x = (x1 + x2) * 0.5
+        if midpoint_x < centre_x - centre_band:
+            direction_ok = slope_x_per_y < -0.04
+        elif midpoint_x > centre_x + centre_band:
+            direction_ok = slope_x_per_y > 0.04
+        else:
+            # Broken centre markings stay close to vertical in a rectified
+            # forward-facing view, unlike diagonal road cracks.
+            direction_ok = abs(slope_x_per_y) <= 0.30
+        if direction_ok:
+            accepted.append((x1, y1, x2, y2))
+
+    return _ordered_int_segments(accepted)
+
+
 def filter_circles_by_edge_support(circles, edge_map, min_support=0.30, samples=72,
                                    radial_tolerance=2):
     """Keep circle candidates whose circumference is supported by image edges.
