@@ -14,20 +14,13 @@ from sdks.novavision.src.base.model import BoundingBox
 from capsules.HoughTransform.src.models.PackageModel import Detection, PackageModel
 from capsules.HoughTransform.src.utils.response import build_response
 from capsules.HoughTransform.src.utils.line_ops import (
-    clip_above_horizon,
     clip_segments,
-    estimate_vanishing_point,
-    filter_by_angle,
     filter_circles_by_edge_support,
-    filter_toward_vanishing_point,
-    line_marking_scores,
     merge_segments,
-    road_roi_polygon,
-    select_road_markings,
 )
 
 
-MAX_OUTPUT_LINES = 6
+MAX_OUTPUT_LINES = 100
 
 
 class HoughTransform(Capsule):
@@ -156,9 +149,16 @@ class HoughTransform(Capsule):
         gray = self._to_gray(frame)
         self._validate_line_params()
         min_dimension = min(gray.shape)
-        min_line_length = max(self.min_line_length, int(round(min_dimension * 0.20)))
-        max_line_gap = max(self.max_line_gap, int(round(min_dimension * 0.04)))
+        # HoughLinesP returns line segments, not semantic road lanes. Keep the
+        # detector general-purpose: process the complete image and permit the
+        # gap between pieces of a broken/painted line to be linked.
+        min_line_length = max(self.min_line_length, int(round(min_dimension * 0.03)))
+        max_line_gap = max(self.max_line_gap, int(round(min_dimension * 0.02)))
         merge_distance = max(self.merge_distance, min_dimension * 0.02)
+        primary_threshold = max(25, min(self.hough_threshold, int(round(min_dimension * 0.06))))
+        broken_threshold = max(15, primary_threshold // 2)
+        broken_min_length = max(10, min_line_length // 2)
+        broken_max_gap = max_line_gap * 2
 
         smoothed = cv2.GaussianBlur(gray, (5, 5), 0)
         edges = cv2.Canny(
@@ -167,91 +167,42 @@ class HoughTransform(Capsule):
             self.canny_high,
         )
 
-        # Keep the road-focused ROI internal so users do not need to tune a mask.
-        roi = np.zeros(edges.shape, dtype=np.uint8)
-        cv2.fillPoly(roi, [road_roi_polygon(gray.shape)], 255)
-        edges = cv2.bitwise_and(edges, roi)
-
-        lines = cv2.HoughLinesP(
-            edges,
+        # The primary pass finds stable full segments. A lower-threshold pass
+        # recovers short or interrupted segments such as dashed road markings.
+        primary_lines = cv2.HoughLinesP(
+            edges.copy(),
             rho=1,
             theta=np.pi / 180,
-            threshold=self.hough_threshold,
+            threshold=primary_threshold,
             minLineLength=min_line_length,
             maxLineGap=max_line_gap,
+        )
+        broken_lines = cv2.HoughLinesP(
+            edges.copy(),
+            rho=1,
+            theta=np.pi / 180,
+            threshold=broken_threshold,
+            minLineLength=broken_min_length,
+            maxLineGap=broken_max_gap,
         )
 
         output = self._to_color(frame)
 
         detections = []
 
-        if lines is not None:
-            segments = np.asarray(lines).reshape(-1, 4)
-            # Road markings can be diagonal at the edges or nearly vertical in
-            # the centre of the lane.  The following VP stage distinguishes
-            # these from horizontal road texture and unrelated edges.
-            segments = filter_by_angle(segments, min_angle=12.0, max_angle=90.0)
+        line_sets = [item for item in (primary_lines, broken_lines) if item is not None]
+        if line_sets:
+            segments = np.concatenate(
+                [np.asarray(item).reshape(-1, 4) for item in line_sets], axis=0
+            )
             segments = merge_segments(
                 segments,
-                max_gap=max_line_gap,
+                max_gap=broken_max_gap,
                 merge_distance=merge_distance,
             )
             height, width = gray.shape
-            segments = filter_by_angle(segments, min_angle=12.0, max_angle=90.0)
-
-            lengths = np.hypot(
-                segments[:, 2] - segments[:, 0], segments[:, 3] - segments[:, 1]
-            )
-            marking_scores = line_marking_scores(gray, segments)
-            long_markings = (lengths >= height * 0.22) & (marking_scores >= 0.58)
-
-            # Do not assume that every camera has the same horizon position.
-            # Estimate the vanishing point from long, bright paint candidates
-            # when possible. Dark asphalt seams may converge geometrically too,
-            # but should not determine which road markings are returned.
-            vp_candidates = segments[long_markings]
-            if len(vp_candidates) < 2:
-                vp_candidates = segments
-            vanishing_point, _ = estimate_vanishing_point(
-                vp_candidates, width=width, height=height
-            )
-            if vanishing_point is not None:
-                segments = filter_toward_vanishing_point(
-                    segments,
-                    width=width,
-                    height=height,
-                    x_fraction=vanishing_point[0] / max(1, width - 1),
-                    y_fraction=vanishing_point[1] / max(1, height - 1),
-                    tolerance_fraction=0.035,
-                )
-                segments = clip_above_horizon(
-                    segments, horizon_y=vanishing_point[1]
-                )
-            elif len(segments) > 3:
-                segments = filter_toward_vanishing_point(
-                    segments,
-                    width=width,
-                    height=height,
-                    tolerance_fraction=0.05,
-                )
-
-            if len(segments):
-                if vanishing_point is not None:
-                    selected = select_road_markings(
-                        gray, segments, width, height, vanishing_point
-                    )
-                    if len(selected):
-                        segments = selected
-                    else:
-                        # Non-road/simple line images do not necessarily have
-                        # bright lane paint, so retain a generic fallback.
-                        marking_scores = line_marking_scores(gray, segments)
-                        segments = segments[
-                            np.argsort(-marking_scores, kind="stable")
-                        ]
-
-            # Present a compact set of the strongest merged candidates rather
-            # than drawing every short asphalt or texture fragment.
+            # ``merge_segments`` orders results by length. A hard cap keeps a
+            # dense texture image from producing an unbounded SDK response.
             segments = segments[:MAX_OUTPUT_LINES]
             segments = clip_segments(segments, width=width, height=height)
             for line in segments:
