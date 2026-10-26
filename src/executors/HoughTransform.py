@@ -156,18 +156,27 @@ class HoughTransform(Capsule):
         gray = self._to_gray(frame)
         self._validate_line_params()
         min_dimension = min(gray.shape)
-        # HoughLinesP returns line segments, not semantic road lanes. Keep the
-        # detector general-purpose: process the complete image and permit the
-        # gap between pieces of a broken/painted line to be linked.
-        min_line_length = max(self.min_line_length, int(round(min_dimension * 0.03)))
-        max_line_gap = max(self.max_line_gap, int(round(min_dimension * 0.02)))
-        merge_distance = max(self.merge_distance, min_dimension * 0.02)
-        primary_threshold = max(25, min(self.hough_threshold, int(round(min_dimension * 0.06))))
+        road_mode = getattr(self, "line_mode", "general") == "road_lanes"
+
+        if road_mode:
+            # Road markings need stronger, longer candidates and a smaller
+            # linking gap so asphalt texture is less likely to become a lane.
+            min_line_length = max(self.min_line_length, int(round(min_dimension * 0.04)))
+            max_line_gap = min(self.max_line_gap, max(10, int(round(min_dimension * 0.04))))
+            merge_distance = max(self.merge_distance, min_dimension * 0.015)
+            primary_threshold = max(self.hough_threshold, int(round(min_dimension * 0.05)))
+        else:
+            # General-line profiles still recover short/interrupted segments.
+            min_line_length = max(self.min_line_length, int(round(min_dimension * 0.03)))
+            max_line_gap = max(self.max_line_gap, int(round(min_dimension * 0.02)))
+            merge_distance = max(self.merge_distance, min_dimension * 0.02)
+            primary_threshold = max(25, min(self.hough_threshold, int(round(min_dimension * 0.06))))
+
         broken_threshold = max(15, primary_threshold // 2)
         broken_min_length = max(10, min_line_length // 2)
         broken_max_gap = max_line_gap * 2
 
-        if getattr(self, "line_mode", "general") == "road_lanes":
+        if road_mode:
             edges = self._road_lane_edges(frame)
         else:
             smoothed = cv2.GaussianBlur(gray, (5, 5), 0)
@@ -187,14 +196,18 @@ class HoughTransform(Capsule):
             minLineLength=min_line_length,
             maxLineGap=max_line_gap,
         )
-        broken_lines = cv2.HoughLinesP(
-            edges.copy(),
-            rho=1,
-            theta=np.pi / 180,
-            threshold=broken_threshold,
-            minLineLength=broken_min_length,
-            maxLineGap=broken_max_gap,
-        )
+        # A second low-threshold pass is useful for general dashed lines,
+        # but on roads it admits many short asphalt cracks and texture edges.
+        broken_lines = None
+        if not road_mode:
+            broken_lines = cv2.HoughLinesP(
+                edges.copy(),
+                rho=1,
+                theta=np.pi / 180,
+                threshold=broken_threshold,
+                minLineLength=broken_min_length,
+                maxLineGap=broken_max_gap,
+            )
 
         output = self._to_color(frame)
 
@@ -214,7 +227,7 @@ class HoughTransform(Capsule):
                 )
             segments = merge_segments(
                 segments,
-                max_gap=broken_max_gap,
+                max_gap=max_line_gap if road_mode else broken_max_gap,
                 merge_distance=merge_distance,
             )
             # ``merge_segments`` orders results by length. A hard cap keeps a
@@ -256,7 +269,9 @@ class HoughTransform(Capsule):
         # White and yellow are the two common reflective lane-marking colour
         # families.  Restricting evidence before Canny prevents asphalt cracks
         # and foliage edges from reaching HoughLinesP at all.
-        white = (lightness >= 160) & (saturation <= 150)
+        # Road asphalt can be bright enough to pass a loose white threshold.
+        # Require brighter, less saturated pixels to focus on painted markings.
+        white = (lightness >= 185) & (saturation <= 110)
         yellow = (
             (hue >= 15)
             & (hue <= 40)
@@ -275,8 +290,8 @@ class HoughTransform(Capsule):
         polygon = np.array(
             [[
                 (0, height - 1),
-                (int(width * 0.38), int(height * 0.40)),
-                (int(width * 0.62), int(height * 0.40)),
+                (int(width * 0.34), int(height * 0.35)),
+                (int(width * 0.66), int(height * 0.35)),
                 (width - 1, height - 1),
             ]],
             dtype=np.int32,
