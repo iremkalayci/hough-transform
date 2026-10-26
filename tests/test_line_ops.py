@@ -80,6 +80,31 @@ def test_road_lane_filter_keeps_left_right_and_dashed_centre_markings():
     assert len(result) == 3
 
 
+def test_road_lane_filter_keeps_steep_perspective_lane_boundaries():
+    # Coordinates mirror the perspective in the tested forward-facing road image.
+    segments = np.array(
+        [
+            [448, 166, 0, 392],    # left lane boundary
+            [448, 166, 872, 392],  # right lane boundary
+            [448, 166, 444, 551],  # centre marking
+        ]
+    )
+    result = line_ops.filter_road_lane_segments(segments, width=872, height=552)
+    assert len(result) == 3
+
+
+def test_road_lane_filter_rejects_lower_right_asphalt_texture_diagonals():
+    segments = np.array(
+        [
+            [530, 350, 835, 534],
+            [545, 344, 810, 520],
+            [598, 410, 840, 550],
+        ]
+    )
+    result = line_ops.filter_road_lane_segments(segments, width=872, height=552)
+    assert result.shape == (0, 4)
+
+
 def test_road_lane_filter_rejects_horizon_trees_and_asphalt_cracks():
     segments = np.array(
         [
