@@ -17,6 +17,7 @@ from capsules.HoughTransform.src.utils.line_ops import (
     clip_segments,
     filter_circles_by_edge_support,
     filter_road_lane_segments,
+    fit_road_lane_boundaries,
     merge_segments,
 )
 
@@ -230,6 +231,13 @@ class HoughTransform(Capsule):
                 max_gap=max_line_gap if road_mode else broken_max_gap,
                 merge_distance=merge_distance,
             )
+            if road_mode:
+                segments = fit_road_lane_boundaries(
+                    segments,
+                    width=width,
+                    height=height,
+                    horizon_ratio=getattr(self, "road_roi_top_ratio", 0.35),
+                )
             # ``merge_segments`` orders results by length. A hard cap keeps a
             # dense texture image from producing an unbounded SDK response.
             segments = segments[:getattr(self, "max_output_lines", MAX_OUTPUT_LINES)]
@@ -271,17 +279,32 @@ class HoughTransform(Capsule):
         # and foliage edges from reaching HoughLinesP at all.
         # Road asphalt can be bright enough to pass a loose white threshold.
         # Require brighter, less saturated pixels to focus on painted markings.
-        white = (lightness >= 185) & (saturation <= 110)
+        white = (
+            (lightness >= getattr(self, "road_white_lightness_min", 185))
+            & (saturation <= getattr(self, "road_white_saturation_max", 110))
+        )
         yellow = (
             (hue >= 15)
             & (hue <= 40)
             & (lightness >= 90)
             & (saturation >= 70)
         )
-        markings = np.zeros((height, width), dtype=np.uint8)
-        markings[white | yellow] = 255
-        markings = cv2.GaussianBlur(markings, (5, 5), 0)
-        edges = cv2.Canny(markings, self.canny_low, self.canny_high)
+        marking_mask = np.zeros((height, width), dtype=np.uint8)
+        marking_mask[white | yellow] = 255
+
+        # Combine grayscale gradient edges with colour evidence. A colour-only
+        # binary mask loses faded paint and shadows; grayscale Canny recovers
+        # those boundaries while the road ROI and perspective filter reject
+        # much of the unrelated scene texture.
+        gray = self._to_gray(frame)
+        smoothed_gray = cv2.GaussianBlur(gray, (5, 5), 0)
+        gray_edges = cv2.Canny(smoothed_gray, self.canny_low, self.canny_high)
+        colour_edges = cv2.Canny(
+            cv2.GaussianBlur(marking_mask, (5, 5), 0),
+            self.canny_low,
+            self.canny_high,
+        )
+        edges = cv2.bitwise_or(gray_edges, colour_edges)
 
         # A perspective trapezoid contains the drivable road below the horizon.
         # Its top is deliberately wider than a vanishing-point line so short
@@ -290,8 +313,14 @@ class HoughTransform(Capsule):
         polygon = np.array(
             [[
                 (0, height - 1),
-                (int(width * 0.34), int(height * 0.35)),
-                (int(width * 0.66), int(height * 0.35)),
+                (
+                    int(width * getattr(self, "road_roi_top_left", 0.34)),
+                    int(height * getattr(self, "road_roi_top_ratio", 0.35)),
+                ),
+                (
+                    int(width * getattr(self, "road_roi_top_right", 0.66)),
+                    int(height * getattr(self, "road_roi_top_ratio", 0.35)),
+                ),
                 (width - 1, height - 1),
             ]],
             dtype=np.int32,
