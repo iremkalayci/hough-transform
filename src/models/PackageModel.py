@@ -218,17 +218,99 @@ class StrictLineProfile(Config):
         )
 
 
+class RoadRoiTopRatio(Config):
+    name: Literal["roiTopRatio"] = "roiTopRatio"
+    value: float = Field(default=0.35, gt=0.0, lt=0.9)
+    type: Literal["number"] = "number"
+    field: Literal["textInput"] = "textInput"
+
+    class Config:
+        title = "Road ROI Top"
+        json_schema_extra = _description(
+            "Where road analysis starts",
+            "Vertical image-height ratio for the top of the road region. Lower values include more distant road; higher values exclude more horizon and roadside detail.",
+        )
+
+
+class RoadRoiTopLeft(Config):
+    name: Literal["roiTopLeft"] = "roiTopLeft"
+    value: float = Field(default=0.34, ge=0.0, lt=0.5)
+    type: Literal["number"] = "number"
+    field: Literal["textInput"] = "textInput"
+
+    class Config:
+        title = "ROI Top Left"
+        json_schema_extra = _description(
+            "Left corner of road ROI",
+            "Horizontal image-width ratio for the trapezoid's upper-left corner. Adjust for camera position and road width.",
+        )
+
+
+class RoadRoiTopRight(Config):
+    name: Literal["roiTopRight"] = "roiTopRight"
+    value: float = Field(default=0.66, gt=0.5, le=1.0)
+    type: Literal["number"] = "number"
+    field: Literal["textInput"] = "textInput"
+
+    class Config:
+        title = "ROI Top Right"
+        json_schema_extra = _description(
+            "Right corner of road ROI",
+            "Horizontal image-width ratio for the trapezoid's upper-right corner. Adjust together with ROI Top Left for camera perspective.",
+        )
+
+
+class RoadWhiteLightness(Config):
+    name: Literal["whiteLightnessMin"] = "whiteLightnessMin"
+    value: int = Field(default=185, ge=0, le=255)
+    type: Literal["number"] = "number"
+    field: Literal["textInput"] = "textInput"
+
+    class Config:
+        title = "White Marking Lightness"
+        json_schema_extra = _description(
+            "Minimum brightness for white paint",
+            "Lower the threshold for faded or shadowed markings; raise it to reject bright asphalt texture.",
+        )
+
+
+class RoadWhiteSaturation(Config):
+    name: Literal["whiteSaturationMax"] = "whiteSaturationMax"
+    value: int = Field(default=110, ge=0, le=255)
+    type: Literal["number"] = "number"
+    field: Literal["textInput"] = "textInput"
+
+    class Config:
+        title = "White Marking Saturation"
+        json_schema_extra = _description(
+            "Maximum saturation for white paint",
+            "White candidates must be less saturated than this value. Lower values are stricter; higher values tolerate tinted lighting.",
+        )
+
+
 class RoadLaneProfile(Config):
     name: Literal["RoadLaneMarkings"] = "RoadLaneMarkings"
+    cannyLow: CannyLow = Field(default_factory=lambda: CannyLow(value=50))
+    cannyHigh: CannyHigh = Field(default_factory=lambda: CannyHigh(value=150))
+    houghThreshold: HoughThreshold = Field(default_factory=lambda: HoughThreshold(value=30))
+    minLineLength: MinLineLength = Field(default_factory=lambda: MinLineLength(value=20))
+    maxLineGap: MaxLineGap = Field(default_factory=lambda: MaxLineGap(value=45))
+    mergeDistance: MergeDistance = Field(default_factory=lambda: MergeDistance(value=6.0))
+    maxOutputLines: MaxOutputLines = Field(default_factory=lambda: MaxOutputLines(value=20))
+    roiTopRatio: RoadRoiTopRatio = Field(default_factory=RoadRoiTopRatio)
+    roiTopLeft: RoadRoiTopLeft = Field(default_factory=RoadRoiTopLeft)
+    roiTopRight: RoadRoiTopRight = Field(default_factory=RoadRoiTopRight)
+    whiteLightnessMin: RoadWhiteLightness = Field(default_factory=RoadWhiteLightness)
+    whiteSaturationMax: RoadWhiteSaturation = Field(default_factory=RoadWhiteSaturation)
     value: Literal["RoadLaneMarkings"] = "RoadLaneMarkings"
-    type: Literal["string"] = "string"
+    type: Literal["object"] = "object"
     field: Literal["option"] = "option"
 
     class Config:
         title = "Road Lane Markings"
         json_schema_extra = _description(
-            "Road-specific lane-marking extraction",
-            "Uses a lower-road trapezoid, white/yellow marking evidence, and perspective-consistent segment filtering. This profile suppresses trees, sky, and asphalt cracks, but is intentionally for forward-facing road scenes rather than arbitrary line images.",
+            "Configurable road-lane preset",
+            "Detects road markings using combined grayscale edges and white/yellow colour evidence, a trapezoidal road ROI, perspective filtering, and line consolidation. The displayed values are defaults, not fixed algorithm constants. Tune the ROI for camera framing, lower the white-lightness threshold for faded/shadowed paint, and adjust Hough length/gap for broken markings.",
         )
 
 
