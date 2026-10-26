@@ -172,6 +172,44 @@ def clip_above_horizon(segments, horizon_y):
     return _as_segments(result)
 
 
+def line_marking_scores(gray, segments, half_width=3, max_samples=96):
+    """Score how strongly each segment is supported by bright road marking pixels.
+
+    Hough detects both painted lane markings and dark asphalt seams.  Sampling
+    a narrow strip around a segment lets the road-specific path prefer painted
+    markings without changing the generic line detector's output schema.
+    Scores are in the inclusive ``[0, 1]`` range.
+    """
+    image = np.asarray(gray)
+    if image.ndim != 2 or image.size == 0:
+        raise ValueError("gray must be a non-empty 2D image.")
+    if half_width < 0 or max_samples < 2:
+        raise ValueError("half_width must be non-negative and max_samples >= 2.")
+    values = _as_segments(segments)
+    scores = np.zeros(len(values), dtype=np.float64)
+    if not len(values):
+        return scores
+
+    height, width = image.shape
+    offsets = np.arange(-int(half_width), int(half_width) + 1)
+    for index, (x1, y1, x2, y2) in enumerate(values):
+        dx, dy = x2 - x1, y2 - y1
+        length = math.hypot(dx, dy)
+        if length <= _EPSILON:
+            continue
+        samples = min(int(max_samples), max(16, int(round(length / 4.0))))
+        position = np.linspace(0.0, 1.0, samples)
+        normal_x, normal_y = -dy / length, dx / length
+        xs = np.rint(x1 + position[:, None] * dx + offsets * normal_x).astype(int)
+        ys = np.rint(y1 + position[:, None] * dy + offsets * normal_y).astype(int)
+        xs = np.clip(xs, 0, width - 1)
+        ys = np.clip(ys, 0, height - 1)
+        # A Hough segment often lies on one edge of a white painted stripe,
+        # so use the brightest value across its small perpendicular strip.
+        scores[index] = float(np.mean(np.max(image[ys, xs], axis=1))) / 255.0
+    return scores
+
+
 def _as_segments(segments):
     values = np.asarray(segments)
     if values.size == 0:

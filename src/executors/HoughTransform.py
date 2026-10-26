@@ -20,6 +20,7 @@ from capsules.HoughTransform.src.utils.line_ops import (
     filter_by_angle,
     filter_circles_by_edge_support,
     filter_toward_vanishing_point,
+    line_marking_scores,
     merge_segments,
     road_roi_polygon,
 )
@@ -197,16 +198,33 @@ class HoughTransform(Capsule):
             height, width = gray.shape
             segments = filter_by_angle(segments, min_angle=12.0, max_angle=90.0)
 
+            lengths = np.hypot(
+                segments[:, 2] - segments[:, 0], segments[:, 3] - segments[:, 1]
+            )
+            marking_scores = line_marking_scores(gray, segments)
+            long_markings = (lengths >= height * 0.22) & (marking_scores >= 0.58)
+
             # Do not assume that every camera has the same horizon position.
-            # Estimate the vanishing point from the candidate segments and keep
-            # only lines that actually converge there.  The existing centred
-            # filter remains a conservative fallback for sparse/simple images.
+            # Estimate the vanishing point from long, bright paint candidates
+            # when possible. Dark asphalt seams may converge geometrically too,
+            # but should not determine which road markings are returned.
+            vp_candidates = segments[long_markings]
+            if len(vp_candidates) < 2:
+                vp_candidates = segments
             vanishing_point, support = estimate_vanishing_point(
-                segments, width=width, height=height
+                vp_candidates, width=width, height=height
             )
             if vanishing_point is not None:
+                segments = filter_toward_vanishing_point(
+                    segments,
+                    width=width,
+                    height=height,
+                    x_fraction=vanishing_point[0] / max(1, width - 1),
+                    y_fraction=vanishing_point[1] / max(1, height - 1),
+                    tolerance_fraction=0.035,
+                )
                 segments = clip_above_horizon(
-                    segments[support], horizon_y=vanishing_point[1]
+                    segments, horizon_y=vanishing_point[1]
                 )
             elif len(segments) > 3:
                 segments = filter_toward_vanishing_point(
@@ -215,6 +233,23 @@ class HoughTransform(Capsule):
                     height=height,
                     tolerance_fraction=0.05,
                 )
+
+            if len(segments):
+                lengths = np.hypot(
+                    segments[:, 2] - segments[:, 0],
+                    segments[:, 3] - segments[:, 1],
+                )
+                marking_scores = line_marking_scores(gray, segments)
+                # On road scenes favour actual painted markings and reject
+                # short seams near the horizon. If no bright candidates exist,
+                # retain the generic line behaviour for non-road images.
+                painted = (marking_scores >= 0.58) & (lengths >= height * 0.30)
+                if np.count_nonzero(painted):
+                    segments = segments[painted]
+                    lengths = lengths[painted]
+                    marking_scores = marking_scores[painted]
+                priority = marking_scores + 0.15 * np.minimum(lengths / height, 1.0)
+                segments = segments[np.argsort(-priority, kind="stable")]
 
             # Present a compact set of the strongest merged candidates rather
             # than drawing every short asphalt or texture fragment.

@@ -155,3 +155,15 @@ def test_clip_above_horizon_drops_and_trims_segments():
     result = line_ops.clip_above_horizon(segments, horizon_y=25)
 
     np.testing.assert_allclose(result, [[1.6666667, 25, 20, 80], [15, 25, 20, 30]])
+
+
+def test_line_marking_scores_prefer_bright_painted_stripe_over_dark_seam():
+    image = np.full((100, 100), 70, dtype=np.uint8)
+    image[:, 20:27] = 255
+    image[:, 70:77] = 105
+    scores = line_ops.line_marking_scores(
+        image, [[23, 5, 23, 95], [73, 5, 73, 95]]
+    )
+
+    assert scores[0] > 0.95
+    assert scores[1] < 0.45
