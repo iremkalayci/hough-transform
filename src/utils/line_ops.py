@@ -221,11 +221,11 @@ def filter_road_lane_segments(
     segments,
     width,
     height,
-    horizon_ratio=0.40,
-    min_bottom_ratio=0.50,
-    center_tolerance_ratio=0.12,
-    vanishing_left_ratio=0.20,
-    vanishing_right_ratio=0.80,
+    horizon_ratio=0.35,
+    min_bottom_ratio=0.48,
+    center_tolerance_ratio=0.10,
+    vanishing_left_ratio=0.38,
+    vanishing_right_ratio=0.62,
 ):
     """Keep segments compatible with a forward-facing road perspective.
 
@@ -266,7 +266,9 @@ def filter_road_lane_segments(
 
         slope_x_per_y = (x2 - x1) / dy
         # Horizontal texture edges and near-horizontal cracks are not lanes.
-        if abs(slope_x_per_y) > 1.5:
+        # Perspective lane boundaries can have a large horizontal change
+        # per vertical pixel. The old 1.5 limit rejected real road edges.
+        if abs(slope_x_per_y) > 2.8:
             continue
 
         projected_x = x1 + slope_x_per_y * (horizon_y - y1)
