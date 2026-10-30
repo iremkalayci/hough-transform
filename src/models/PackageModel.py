@@ -183,10 +183,10 @@ class GeneralLineProfile(Config):
     field: Literal["option"] = "option"
 
     class Config:
-        title = "General Lines (Default)"
+        title = "General Lines"
         json_schema_extra = _description(
             "Balanced straight-line detection",
-            "Balanced Canny and probabilistic Hough values for ordinary straight segments in documents, industrial imagery, architecture, and roads.",
+            "Balanced Canny and Hough settings for general-purpose straight-line detection. A good starting point for documents, industrial images, and architecture.",
         )
 
 
@@ -197,10 +197,10 @@ class BrokenLineProfile(Config):
     field: Literal["option"] = "option"
 
     class Config:
-        title = "Broken / Dashed Lines"
+        title = "Broken and Dashed Lines"
         json_schema_extra = _description(
-            "Interrupted-line recovery",
-            "Uses lower vote and length requirements plus a larger gap tolerance. Suitable for worn paint, dash markings, and partially occluded edges.",
+            "Finds short and interrupted lines",
+            "Tuned to catch short segments and lines split by gaps, such as dashed or worn markings. Busy images may produce more weak candidates.",
         )
 
 
@@ -211,10 +211,10 @@ class StrictLineProfile(Config):
     field: Literal["option"] = "option"
 
     class Config:
-        title = "Long, Strong Lines"
+        title = "Long and Strong Lines"
         json_schema_extra = _description(
-            "Noise-resistant segments",
-            "Requires longer and stronger evidence. Use for textured images that produce too many valid but unhelpful line candidates.",
+            "Focuses on long, prominent lines",
+            "Reduces short and weak lines so prominent lines stand out in noisy or textured images. Faint or short lines may be missed.",
         )
 
 
@@ -227,8 +227,8 @@ class RoadLaneProfile(Config):
     class Config:
         title = "Road Lane Markings"
         json_schema_extra = _description(
-            "Road-specific lane-marking extraction",
-            "Uses a lower-road trapezoid, white/yellow marking evidence, and perspective-consistent segment filtering. This profile suppresses trees, sky, and asphalt cracks, but is intentionally for forward-facing road scenes rather than arbitrary line images.",
+            "Targets lane markings in road images",
+            "Focuses on lane lines and the perspective structure of forward-facing road images. Not intended for general line detection on other scenes.",
         )
 
 
@@ -248,8 +248,8 @@ class CustomLineProfile(Config):
     class Config:
         title = "Custom"
         json_schema_extra = _description(
-            "Manual line settings",
-            "Exposes every Canny, Hough, merge, and output-size control. Values are validated before OpenCV runs.",
+            "Manual Canny and Hough settings",
+            "Lets you set the Canny thresholds, Hough vote threshold, line length and gap limits, segment merge distance, and output limit yourself. Use it when none of the presets fit your images.",
         )
 
 
@@ -268,8 +268,8 @@ class LineProfile(Config):
     class Config:
         title = "Line Detection Profile"
         json_schema_extra = _description(
-            "Preset or custom controls",
-            "Choose a tuned profile for common sources, or select Custom to tune the underlying Canny and Hough parameters.",
+            "Choose a line detection profile",
+            "General Lines: general-purpose straight-line detection. Broken and Dashed Lines: finds interrupted and fragmented lines. Long and Strong Lines: prioritises long, prominent lines. Road Lane Markings: targets lane markings and road edges in road images. Custom: manual control of the Canny and Hough parameters.",
         )
 
 
@@ -378,10 +378,10 @@ class GeneralCircleProfile(Config):
     field: Literal["option"] = "option"
 
     class Config:
-        title = "General Circles (Default)"
+        title = "General Circles"
         json_schema_extra = _description(
             "Balanced circle detection",
-            "General HoughCircles defaults for circular edges with unknown radius and spacing.",
+            "Balanced settings for general-purpose circle detection when the radius and spacing of the circles are not known in advance.",
         )
 
 
@@ -392,10 +392,10 @@ class CoinCircleProfile(Config):
     field: Literal["option"] = "option"
 
     class Config:
-        title = "Coins / Circular Parts"
+        title = "Coins and Circular Objects"
         json_schema_extra = _description(
-            "Separated round objects",
-            "Tuned for well-separated objects such as coins and industrial parts, favouring stronger circles and fewer near-duplicate candidates.",
+            "Finds well-separated round objects",
+            "Suited to circular objects that are clearly separated from each other, such as coins or round parts. Less suited to touching or heavily overlapping circles.",
         )
 
 
@@ -415,8 +415,8 @@ class CustomCircleProfile(Config):
     class Config:
         title = "Custom"
         json_schema_extra = _description(
-            "Manual circle settings",
-            "Exposes all HoughCircles controls for sources that do not suit the General or Coins / Circular Parts presets.",
+            "Manual HoughCircles settings",
+            "Lets you set the accumulator resolution (dp), minimum centre distance, edge threshold (param1), circle acceptance threshold (param2), radius limits, and maximum number of output circles. Use it when neither preset fits.",
         )
 
 
@@ -433,8 +433,8 @@ class CircleProfile(Config):
     class Config:
         title = "Circle Detection Profile"
         json_schema_extra = _description(
-            "Preset or custom controls",
-            "Choose a tuned profile for common circle sources, or select Custom to tune accumulator, distance, and radius settings.",
+            "Choose a circle detection profile",
+            "General Circles: general-purpose circle detection. Coins and Circular Objects: detects well-separated circular objects. Custom: manual control of the HoughCircles parameters.",
         )
 
 
