@@ -382,17 +382,17 @@ def prepare_edges(gray, strong_denoise=False, equalize=True, sensitivity=100.0,
     gy = cv2.Sobel(work, cv2.CV_32F, 0, 1, ksize=3)
     magnitude = np.abs(gx) + np.abs(gy)  # same L1 norm cv2.Canny uses by default
 
-    median = float(np.median(magnitude))
     top = float(np.percentile(magnitude, 99.5))
-    noise_floor = 4.0 * median
-    if top > _EPS:
-        scaled = np.clip(magnitude * (255.0 / top), 0, 255).astype(np.uint8)
-        otsu, _ = cv2.threshold(scaled, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
-        otsu = otsu * top / 255.0
-    else:
-        otsu = 0.0
-    high = max(noise_floor, 0.7 * otsu, 24.0)
+    # The threshold must sit just above the noise, not above the strong
+    # structure or the median gradient (which is texture, not noise, when objects
+    # fill most of the frame): on a clean image with a flat background an Otsu-style split
+    # would follow the strongest details and drop weaker, real outlines (the
+    # rim of a silver coin on white). Texture is handled by the density guard
+    # below, which raises the threshold only when the edge map is too dense.
+    noise_floor = 14.0 * sigma
+    high = max(noise_floor, 24.0)
     high = min(high, 0.6 * top) if top > 24.0 else high
+    low = 0.4 * high
     high /= max(sensitivity, 5.0) / 100.0
     low = 0.4 * high
     edges = cv2.Canny(work, low, high)
