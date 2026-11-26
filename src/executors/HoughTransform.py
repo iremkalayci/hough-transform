@@ -1,6 +1,7 @@
-
 import os
 import sys
+
+import re
 
 import cv2
 import numpy as np
@@ -13,16 +14,22 @@ from sdks.novavision.src.base.model import BoundingBox
 
 from capsules.HoughTransform.src.models.PackageModel import Detection, PackageModel
 from capsules.HoughTransform.src.utils.response import build_response
-from capsules.HoughTransform.src.utils.line_ops import (
-    clip_segments,
-    filter_circles_by_edge_support,
-    filter_road_lane_segments,
-    merge_segments,
-)
+from capsules.HoughTransform.src.utils import vision_ops
 
 
-MAX_OUTPUT_LINES = 100
-MAX_OUTPUT_CIRCLES = 100
+MAX_WORKING_SIDE = 1280
+
+LINE_COLOR = (0, 0, 255)
+CIRCLE_COLOR = (0, 200, 0)
+ELLIPSE_COLOR = (255, 0, 255)
+SHAPE_COLOR = (255, 160, 0)
+
+# classId used in the detection output
+CLASS_IDS = {"line": 0, "circle": 1, "ellipse": 2}
+SHAPE_CLASS_ID = 3
+
+TASKS = ("LineDetection", "CircleDetection", "NoiseDetection", "BrokenDetection",
+         "PartialEdgeDetection", "EllipseDetection", "ShapeDetection")
 
 
 class HoughTransform(Capsule):
@@ -34,10 +41,16 @@ class HoughTransform(Capsule):
         self.image = self.request.get_param("inputImage")
         self.detections = []
 
-    def _active_task_configs(self):
-        """Return the validated config branch selected for the active task."""
-        executor = self.request.model.configs.executor.value
-        return executor.value.configs
+    def _user_settings(self):
+        """Values of the active executor's fields, keyed like ``settings.DEFAULTS``."""
+        configs = self.request.model.configs.executor.value.value.configs
+        values = {}
+        for name in type(configs).model_fields if hasattr(type(configs), "model_fields") \
+                else configs.__fields__:
+            field = getattr(configs, name, None)
+            if field is not None and hasattr(field, "value"):
+                values[re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()] = field.value
+        return values
 
     @staticmethod
     def bootstrap(config: dict) -> dict:
@@ -152,242 +165,121 @@ class HoughTransform(Capsule):
             "cannot create correctly associated detections."
         )
 
-    def detect_lines(self, frame):
-        gray = self._to_gray(frame)
-        self._validate_line_params()
-        min_dimension = min(gray.shape)
-        # HoughLinesP returns line segments, not semantic road lanes. Keep the
-        # detector general-purpose: process the complete image and permit the
-        # gap between pieces of a broken/painted line to be linked.
-        min_line_length = max(self.min_line_length, int(round(min_dimension * 0.03)))
-        max_line_gap = max(self.max_line_gap, int(round(min_dimension * 0.02)))
-        merge_distance = max(self.merge_distance, min_dimension * 0.02)
-        primary_threshold = max(25, min(self.hough_threshold, int(round(min_dimension * 0.06))))
-        broken_threshold = max(15, primary_threshold // 2)
-        broken_min_length = max(10, min_line_length // 2)
-        broken_max_gap = max_line_gap * 2
+    # ------------------------------------------------------------------
+    # Task pipelines. Each returns lines (N,4), circles (M,3),
+    # ellipses [((cx,cy),(w,h),angle)] and shapes [(label, polygon, bbox)].
+    # ------------------------------------------------------------------
 
-        if getattr(self, "line_mode", "general") == "road_lanes":
-            edges = self._road_lane_edges(frame)
-        else:
-            smoothed = cv2.GaussianBlur(gray, (5, 5), 0)
-            edges = cv2.Canny(
-                smoothed,
-                self.canny_low,
-                self.canny_high,
-            )
+    def analyze(self, gray, cfg=None):
+        """Run the pipeline of the active task on a grayscale uint8 frame.
 
-        # The primary pass finds stable full segments. A lower-threshold pass
-        # recovers short or interrupted segments such as dashed road markings.
-        primary_lines = cv2.HoughLinesP(
-            edges.copy(),
-            rho=1,
-            theta=np.pi / 180,
-            threshold=primary_threshold,
-            minLineLength=min_line_length,
-            maxLineGap=max_line_gap,
-        )
-        broken_lines = cv2.HoughLinesP(
-            edges.copy(),
-            rho=1,
-            theta=np.pi / 180,
-            threshold=broken_threshold,
-            minLineLength=broken_min_length,
-            maxLineGap=broken_max_gap,
-        )
-
-        output = self._to_color(frame)
-
-        detections = []
-
-        line_sets = [item for item in (primary_lines, broken_lines) if item is not None]
-        if line_sets:
-            segments = np.concatenate(
-                [np.asarray(item).reshape(-1, 4) for item in line_sets], axis=0
-            )
-            height, width = gray.shape
-            if getattr(self, "line_mode", "general") == "road_lanes":
-                segments = filter_road_lane_segments(
-                    segments,
-                    width=width,
-                    height=height,
-                )
-            segments = merge_segments(
-                segments,
-                max_gap=broken_max_gap,
-                merge_distance=merge_distance,
-            )
-            # ``merge_segments`` orders results by length. A hard cap keeps a
-            # dense texture image from producing an unbounded SDK response.
-            segments = segments[:getattr(self, "max_output_lines", MAX_OUTPUT_LINES)]
-            segments = clip_segments(segments, width=width, height=height)
-            for line in segments:
-                x1, y1, x2, y2 = map(int, line)
-
-                cv2.line(
-                    output,
-                    (x1, y1),
-                    (x2, y2),
-                    (0, 0, 255),
-                    2,
-                )
-
-                detections.append(
-                    self._make_detection(
-                        class_id=0,
-                        label="line",
-                        bounds=(min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2)),
-                    )
-                )
-
-        return output, detections
-
-    def _road_lane_edges(self, frame):
-        """Return Canny edges limited to likely painted road markings.
-
-        This is intentionally used only by the ``Road Lane Markings`` preset.
-        General Hough line profiles continue to work on every image pixel.
+        ``cfg`` holds the task's settings (see ``settings.DEFAULTS``); when it
+        is omitted the defaults are used.
         """
-        color = self._to_color(frame)
-        height, width = color.shape[:2]
-        hls = cv2.cvtColor(color, cv2.COLOR_BGR2HLS)
-        hue, lightness, saturation = cv2.split(hls)
+        task = self.task
+        if task not in TASKS:
+            raise ValueError("Unsupported Hough detection task: {!r}".format(task))
+        cfg = dict(cfg or {})
+        empty_circles = np.empty((0, 3))
+        lines, circles, ellipses, shapes = np.empty((0, 4)), empty_circles, [], []
 
-        # White and yellow are the two common reflective lane-marking colour
-        # families.  Restricting evidence before Canny prevents asphalt cracks
-        # and foliage edges from reaching HoughLinesP at all.
-        white = (lightness >= 160) & (saturation <= 150)
-        yellow = (
-            (hue >= 15)
-            & (hue <= 40)
-            & (lightness >= 90)
-            & (saturation >= 70)
+        ed = vision_ops.prepare_edges(
+            gray,
+            strong_denoise=(task == "NoiseDetection"),
+            sensitivity=cfg.get("edge_sensitivity_pct", 100.0),
+            denoise_strength=cfg.get("denoise_strength_pct", 100.0),
         )
-        markings = np.zeros((height, width), dtype=np.uint8)
-        markings[white | yellow] = 255
-        markings = cv2.GaussianBlur(markings, (5, 5), 0)
-        edges = cv2.Canny(markings, self.canny_low, self.canny_high)
 
-        # A perspective trapezoid contains the drivable road below the horizon.
-        # Its top is deliberately wider than a vanishing-point line so short
-        # dashed centre markings are retained.
-        mask = np.zeros_like(edges)
-        polygon = np.array(
-            [[
-                (0, height - 1),
-                (int(width * 0.38), int(height * 0.40)),
-                (int(width * 0.62), int(height * 0.40)),
-                (width - 1, height - 1),
-            ]],
-            dtype=np.int32,
-        )
-        cv2.fillPoly(mask, polygon, 255)
-        return cv2.bitwise_and(edges, mask)
+        if task in ("LineDetection", "NoiseDetection", "BrokenDetection", "PartialEdgeDetection"):
+            broken = task in ("BrokenDetection", "PartialEdgeDetection")
+            # Explain away clear circles first, so rim chords are not reported as lines.
+            solid = vision_ops.detect_circles(ed, "full")
+            # Partial edges reuse the broken-line gap rules (fixed: they are part of
+            # what makes an edge "partial", not a user preference).
+            line_cfg = cfg if task != "PartialEdgeDetection" else dict(
+                cfg, min_dash_fill_pct=22.0, max_gap_pct=20.0)
+            lines = vision_ops.detect_lines(ed.without_circles(solid), broken=broken, cfg=line_cfg)
+            circles = solid
+            if task in ("BrokenDetection", "PartialEdgeDetection"):
+                mode = "broken" if task == "BrokenDetection" else "partial"
+                extra = vision_ops.detect_circles(ed.without_circles(solid), mode, cfg=cfg)
+                # Chords of dashed rims / arcs are not lines; circles that merely
+                # trace a straight line are not circles.
+                lines = vision_ops.drop_lines_on_circles(lines, extra)
+                extra = vision_ops.drop_circles_on_lines(ed, extra, lines)
+                circles = vision_ops.merge_circles(solid, extra)
+            if task == "LineDetection":
+                circles = empty_circles
+            if task == "NoiseDetection":
+                solid = vision_ops.detect_circles(ed, "full", cfg=cfg)
+                circles = solid
+        elif task == "CircleDetection":
+            circles = vision_ops.detect_circles(ed, "full", cfg=cfg)
+        elif task == "EllipseDetection":
+            ellipses = vision_ops.detect_ellipses(ed, cfg=cfg)
+        elif task == "ShapeDetection":
+            shapes = vision_ops.detect_shapes(ed, cfg=cfg)
 
-    def _validate_line_params(self):
-        if not (0 <= self.canny_low < self.canny_high <= 255):
-            raise ValueError("CannyLow must be less than CannyHigh.")
-        if self.hough_threshold <= 0:
-            raise ValueError("HoughThreshold must be positive.")
-        if self.min_line_length <= 0 or self.max_line_gap < 0:
-            raise ValueError("Invalid line length or gap.")
-        if self.merge_distance < 0 or self.max_output_lines <= 0:
-            raise ValueError("Merge distance and maximum output lines must be non-negative.")
+        if len(lines) and len(circles):
+            lines = vision_ops.drop_lines_on_circles(lines, circles)
+            circles = vision_ops.drop_circles_on_lines(ed, circles, lines)
+        return lines, circles, ellipses, shapes
 
-    def detect_circles(self, frame):
+    def detect(self, frame, cfg=None):
+        """Detect on ``frame`` (uint8, any channel layout); return annotated BGR + detections."""
         gray = self._to_gray(frame)
-
-        if min(
-            self.dp,
-            self.param1,
-            self.param2,
-        ) <= 0:
-            raise ValueError(
-                "DP, Param1, and Param2 must be positive."
-            )
-
-        if self.min_radius < 0 or self.max_radius < 0:
-            raise ValueError("Circle radii cannot be negative.")
-
-        if self.max_radius and self.max_radius < self.min_radius:
-            raise ValueError("MaxRadius must be >= MinRadius.")
-
-        blurred = cv2.medianBlur(gray, 5)
-        min_dimension = min(gray.shape)
-        # Avoid nearby shadow/texture arcs becoming extra circles in common
-        # inspection images, while keeping the spacing automatic for users.
-        min_dist = self.min_dist or max(1.0, min_dimension * 0.25)
-
-        circles = cv2.HoughCircles(
-            blurred,
-            cv2.HOUGH_GRADIENT,
-            dp=self.dp,
-            minDist=min_dist,
-            param1=self.param1,
-            param2=self.param2,
-            minRadius=self.min_radius,
-            maxRadius=self.max_radius,
-        )
+        height, width = gray.shape[:2]
+        scale = min(1.0, MAX_WORKING_SIDE / float(max(height, width)))
+        work = gray
+        if scale < 1.0:
+            work = cv2.resize(gray, (int(round(width * scale)), int(round(height * scale))),
+                              interpolation=cv2.INTER_AREA)
+        lines, circles, ellipses, shapes = self.analyze(work, cfg)
+        inv = 1.0 / scale
 
         output = self._to_color(frame)
-
         detections = []
+        thickness = max(2, int(round(min(height, width) / 300)))
 
-        if circles is not None:
-            height, width = gray.shape
-            edge_map = cv2.Canny(blurred, self.param1 / 2.0, self.param1)
-            candidates = filter_circles_by_edge_support(
-                circles[0], edge_map, min_support=0.30
-            )
+        for x1, y1, x2, y2 in np.asarray(lines, dtype=np.float64).reshape(-1, 4):
+            x1, y1, x2, y2 = x1 * inv, y1 * inv, x2 * inv, y2 * inv
+            cv2.line(output, (int(round(x1)), int(round(y1))), (int(round(x2)), int(round(y2))),
+                     LINE_COLOR, thickness, cv2.LINE_AA)
+            detections.append(self._make_detection(
+                CLASS_IDS["line"], "line",
+                (min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2))))
 
-            accepted_circles = []
-            for circle in np.round(candidates).astype(int):
-                if len(accepted_circles) >= getattr(
-                    self, "max_output_circles", MAX_OUTPUT_CIRCLES
-                ):
-                    break
-                x, y, radius = map(int, circle)
-                if radius <= 0:
-                    continue
-                if any(np.hypot(x - old_x, y - old_y) < 0.90 * (radius + old_radius)
-                       for old_x, old_y, old_radius in accepted_circles):
-                    continue
-                accepted_circles.append((x, y, radius))
+        for cx, cy, r in np.asarray(circles, dtype=np.float64).reshape(-1, 3):
+            cx, cy, r = cx * inv, cy * inv, r * inv
+            cv2.circle(output, (int(round(cx)), int(round(cy))), int(round(r)),
+                       CIRCLE_COLOR, thickness, cv2.LINE_AA)
+            cv2.circle(output, (int(round(cx)), int(round(cy))), max(2, thickness),
+                       CIRCLE_COLOR, -1, cv2.LINE_AA)
+            detections.append(self._make_detection(
+                CLASS_IDS["circle"], "circle",
+                (max(0, cx - r), max(0, cy - r), min(width, cx + r), min(height, cy + r))))
 
-                cv2.circle(
-                    output,
-                    (x, y),
-                    radius,
-                    (0, 255, 0),
-                    2,
-                )
+        for (cx, cy), (w, h), angle in ellipses:
+            cx, cy, w, h = cx * inv, cy * inv, w * inv, h * inv
+            cv2.ellipse(output, ((cx, cy), (w, h), angle), ELLIPSE_COLOR, thickness, cv2.LINE_AA)
+            box = cv2.boxPoints(((cx, cy), (w, h), angle))
+            detections.append(self._make_detection(
+                CLASS_IDS["ellipse"], "ellipse",
+                (max(0, box[:, 0].min()), max(0, box[:, 1].min()),
+                 min(width, box[:, 0].max()), min(height, box[:, 1].max()))))
 
-                left = max(0, x - radius)
-                top = max(0, y - radius)
-                right = min(width - 1, x + radius)
-                bottom = min(height - 1, y + radius)
-                detections.append(
-                    self._make_detection(
-                        class_id=1,
-                        label="circle",
-                        bounds=(left, top, right, bottom),
-                    )
-                )
+        for label, polygon, (bx1, by1, bx2, by2) in shapes:
+            poly = np.rint(np.asarray(polygon, dtype=np.float64) * inv).astype(np.int32)
+            cv2.polylines(output, [poly.reshape(-1, 1, 2)], True, SHAPE_COLOR, thickness, cv2.LINE_AA)
+            cv2.putText(output, label, (int(bx1 * inv), max(12, int(by1 * inv) - 4)),
+                        cv2.FONT_HERSHEY_SIMPLEX, max(0.4, min(height, width) / 900.0),
+                        SHAPE_COLOR, max(1, thickness - 1), cv2.LINE_AA)
+            detections.append(self._make_detection(
+                SHAPE_CLASS_ID, label, (bx1 * inv, by1 * inv, bx2 * inv, by2 * inv)))
 
         return output, detections
 
     def run(self):
-        if self.task == "LineDetection":
-            self._validate_line_params()
-        elif min(self.dp, self.param1, self.param2) <= 0:
-            raise ValueError("DP, Param1, and Param2 must be positive.")
-        elif self.min_radius < 0 or self.max_radius < 0:
-            raise ValueError("Circle radii cannot be negative.")
-        elif self.max_radius and self.max_radius < self.min_radius:
-            raise ValueError("MaxRadius must be >= MinRadius.")
-        elif self.max_output_circles <= 0:
-            raise ValueError("Maximum output circles must be positive.")
-
         input_is_list = isinstance(self.image, list)
         input_images = self.image if input_is_list else [self.image]
         if any(image is None for image in input_images):
@@ -400,10 +292,7 @@ class HoughTransform(Capsule):
             self._current_image_uid = self._image_uid(img, input_image)
             source_frame = np.asarray(img.value)
             frame, normalized = self._prepare_frame(source_frame)
-            if self.task == "LineDetection":
-                output, detections = self.detect_lines(frame)
-            else:
-                output, detections = self.detect_circles(frame)
+            output, detections = self.detect(frame, self._user_settings())
             self.detections.extend(detections)
             img.value = self._restore_frame_dtype(output, source_frame, normalized)
             output_images.append(

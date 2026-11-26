@@ -3,7 +3,7 @@ from setuptools import setup
 setup(
     name="hough-transform-capsule",
     version="0.1.0",
-    description="NovaVision capsule for OpenCV line and circle detection",
+    description="NovaVision capsule for classic Hough-based line, circle, ellipse and shape detection",
     # Match the import path used by NovaVision's capsule loader without
     # shipping synthetic __init__.py files in the capsule source tree.
     # Keep metadata values literal: NovaVision's repository loader reads
