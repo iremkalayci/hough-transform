@@ -638,7 +638,7 @@ def detect_lines(ed, broken=False, cfg=None):
     merged = merge_segments(
         np.asarray(segments, dtype=np.float64),
         max_gap=max_gap if broken else max(max_gap, 0.0),
-        merge_distance=max(3.0, 0.012 * d),
+        merge_distance=max(3.0, (0.025 if broken else 0.012) * d),
     )
     merged = merged[:max_lines]
     merged[:, (0, 2)] = np.clip(merged[:, (0, 2)], 0, ed.width - 1)
@@ -727,7 +727,11 @@ def _circle_candidates(ed, min_r, max_r):
 def _arc_stats(ed, cx, cy, r, samples=240):
     angles = np.linspace(0.0, 2 * math.pi, samples, endpoint=False)
     nx, ny = np.cos(angles), np.sin(angles)
-    inside, supported = _supported_samples(ed, cx + r * nx, cy + r * ny, nx, ny, min_cos=0.94)
+    # Outlines drawn with a thick stroke have edges on both sides of the circle:
+    # allow about half a stroke width (grows with the radius, capped).
+    tolerance = min(6.0, max(1.6, 0.045 * r))
+    inside, supported = _supported_samples(ed, cx + r * nx, cy + r * ny, nx, ny,
+                                           tol=tolerance, min_cos=0.94)
     visible = int(inside.sum())
     if visible == 0:
         return 0.0, 0.0, 0.0
@@ -856,54 +860,152 @@ def _fit_ellipse_robust(x, y, tol):
     return ellipse
 
 
+def _edge_chains(ed, min_len=14, junction_neighbours=5):
+    """Split the edge map at branch points into simple curve pieces (chains).
+
+    A closed outline that touches clutter (relief, texture) is one huge
+    connected component, which cannot be fitted as a whole. Cutting at
+    branches gives short clean pieces that can seed a fit.
+    """
+    edges = (ed.edges > 0).astype(np.uint8)
+    neighbours = cv2.filter2D(edges, -1, np.ones((3, 3), np.float32),
+                              borderType=cv2.BORDER_CONSTANT) - edges
+    branch = ((edges > 0) & (neighbours >= junction_neighbours)).astype(np.uint8)
+    pieces = edges.copy()
+    pieces[cv2.dilate(branch, np.ones((3, 3), np.uint8)) > 0] = 0
+    count, labels = cv2.connectedComponents(pieces, connectivity=8)
+    ys, xs = np.nonzero(pieces)
+    owner = labels[ys, xs]
+    order = np.argsort(owner)
+    xs, ys, owner = xs[order], ys[order], owner[order]
+    starts = np.searchsorted(owner, np.arange(1, count))
+    stops = np.append(starts[1:], len(owner))
+    chains = [(xs[a:b].astype(np.float32), ys[a:b].astype(np.float32))
+              for a, b in zip(starts, stops) if b - a >= min_len]
+    chains.sort(key=lambda chain: -len(chain[0]))
+    return chains
+
+
+def _grow_ellipse(ed, ellipse, tol):
+    """Refit ``ellipse`` to every edge pixel lying on its outline (a few rounds)."""
+    for _ in range(3):
+        (cx, cy), (w, h), _angle = ellipse
+        reach = max(w, h) / 2.0 + 3.0 * tol
+        near = (np.abs(ed.xs - cx) <= reach) & (np.abs(ed.ys - cy) <= reach)
+        px, py = ed.xs[near], ed.ys[near]
+        if len(px) < 12:
+            return None
+        on_outline = _ellipse_residual(ellipse, px, py) <= 1.5 * tol
+        if on_outline.sum() < 12:
+            return None
+        ellipse = _fit_ellipse_robust(px[on_outline], py[on_outline], tol)
+        if ellipse is None:
+            return None
+    return ellipse
+
+
+def _verify_ellipse(ed, ellipse, min_support, min_cover, min_axis):
+    """Score of ``ellipse`` (support x coverage) or None when it is not backed by edges."""
+    d = ed.dimension
+    (_cx, _cy), (w, h), _angle = ellipse
+    major, minor = max(w, h), min(w, h)
+    if minor < 2 * min_axis or major > 0.9 * d or minor / major < 0.15:
+        return None
+    sx, sy, nx, ny, t = _ellipse_samples(ellipse)
+    inside, supported = _supported_samples(ed, sx, sy, nx, ny, tol=1.8, min_cos=0.78)
+    visible = int(inside.sum())
+    if visible < 60:
+        return None
+    support = float(supported.sum()) / visible
+    cover = _angular_coverage(t[supported], 72)
+    if support < min_support or cover < min_cover:
+        return None
+    return support * cover
+
+
+def _ellipse_overlap(first, second):
+    """Intersection over union of the two filled ellipses."""
+    corners = np.vstack((cv2.boxPoints(first), cv2.boxPoints(second)))
+    x0, y0 = corners.min(axis=0)
+    x1, y1 = corners.max(axis=0)
+    scale = min(1.0, 120.0 / max(x1 - x0, y1 - y0, 1.0))
+    width, height = int((x1 - x0) * scale) + 3, int((y1 - y0) * scale) + 3
+
+    def draw(ellipse):
+        (cx, cy), (w, h), angle = ellipse
+        mask = np.zeros((height, width), np.uint8)
+        cv2.ellipse(mask, (int((cx - x0) * scale) + 1, int((cy - y0) * scale) + 1),
+                    (max(1, int(w * scale / 2)), max(1, int(h * scale / 2))), angle, 0, 360, 1, -1)
+        return mask
+
+    a, b = draw(first), draw(second)
+    return float((a & b).sum()) / float((a | b).sum() + _EPS)
+
+
 def detect_ellipses(ed, partial=False, cfg=None):
-    """Ellipses by robust fitting of edge-pixel groups, verified by gradient support."""
+    """Ellipses fitted to edge pixels and verified around the whole outline.
+
+    Two sources of candidates are combined: whole connected edge groups (clean
+    scenes) and short chains cut at branch points (outlines that touch clutter,
+    such as coins on a textured table seen from the side).
+    """
     d = ed.dimension
     if ed.count < 20:
         return []
+    min_axis = max(3.0, _get(cfg, "min_axis_pct", 2.0) / 100.0 * d)
+    min_support = _get(cfg, "min_support_pct", 40.0 if partial else 60.0) / 100.0
+    min_cover = 0.2 if partial else 0.5
+    max_ellipses = int(_get(cfg, "max_ellipses", 40))
+    tol = max(1.6, 0.006 * d)
+    candidates = []
+
     closed = cv2.morphologyEx(ed.edges, cv2.MORPH_CLOSE,
                               cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3)))
     count, labels = cv2.connectedComponents(closed, connectivity=8)
     ey, ex = np.nonzero(ed.edges)
     lab = labels[ey, ex]
-    min_axis = max(3.0, _get(cfg, "min_axis_pct", 2.0) / 100.0 * d)
-    ratio = _get(cfg, "min_support_pct", 45.0 if partial else 70.0) / 100.0
-    limits = dict(ratio=ratio, arc=0.2 if partial else 0.6)
-    max_ellipses = int(_get(cfg, "max_ellipses", 40))
-    found = []
-    tol = max(1.6, 0.006 * d)
     for k in range(1, count):
         sel = lab == k
-        n = int(sel.sum())
-        if n < 25:
-            continue
-        x, y = ex[sel].astype(np.float32), ey[sel].astype(np.float32)
-        ellipse = _fit_ellipse_robust(x, y, tol)
-        if ellipse is None:
-            continue
-        (cx, cy), (w, h), angle = ellipse
-        major, minor = max(w, h), min(w, h)
-        if minor < 2 * min_axis or major > 2.0 * d or minor / major < 0.15:
-            continue
-        sx, sy, nx, ny, t = _ellipse_samples(ellipse)
-        inside, supported = _supported_samples(ed, sx, sy, nx, ny, tol=1.8, min_cos=0.78)
-        visible = int(inside.sum())
-        if visible < 60:
-            continue
-        ratio = float(supported.sum()) / visible
-        cover = _angular_coverage(t[supported], 72)
-        if ratio < limits["ratio"] or cover < limits["arc"]:
-            continue
-        found.append((ratio * cover, ellipse))
-    found.sort(key=lambda item: -item[0])
+        if int(sel.sum()) >= 25:
+            ellipse = _fit_ellipse_robust(ex[sel].astype(np.float32), ey[sel].astype(np.float32), tol)
+            if ellipse is not None:
+                candidates.append(ellipse)
+
+    for junction_neighbours in (5, 8):
+        for x, y in _edge_chains(ed, 14, junction_neighbours)[:1500]:
+            ellipse = _fit_ellipse_robust(x, y, tol)
+            if ellipse is not None:
+                ellipse = _grow_ellipse(ed, ellipse, tol)
+            if ellipse is not None:
+                candidates.append(ellipse)
+
+    scored = []
+    for ellipse in candidates:
+        score = _verify_ellipse(ed, ellipse, min_support, min_cover, min_axis)
+        if score is not None:
+            scored.append((score, ellipse))
+    scored.sort(key=lambda item: -item[0])
     kept = []
-    for _, e in found:
-        (cx, cy), (w, h), _a = e
-        if any(math.hypot(cx - k[0][0], cy - k[0][1]) < 0.25 * max(w, h)
-               and abs(max(w, h) - max(k[1])) < 0.3 * max(w, h) for k in kept):
+    for _, ellipse in scored:
+        if any(_ellipse_overlap(ellipse, other) > 0.5 for other in kept):
             continue
-        kept.append(e)
+        kept.append(ellipse)
     return kept[:max_ellipses]
+
+
+def drop_lines_on_ellipses(lines, ellipses):
+    """Remove straight pieces that only trace the outline of a detected ellipse."""
+    lines = np.asarray(lines, dtype=np.float64).reshape(-1, 4)
+    if not len(lines) or not len(ellipses):
+        return lines
+    keep = np.ones(len(lines), dtype=bool)
+    for ellipse in ellipses:
+        (_cx, _cy), (w, h), _angle = ellipse
+        tolerance = max(3.5, 0.04 * max(w, h))
+        on_a = _ellipse_residual(ellipse, lines[:, 0], lines[:, 1]) <= tolerance
+        on_b = _ellipse_residual(ellipse, lines[:, 2], lines[:, 3]) <= tolerance
+        keep &= ~(on_a & on_b)
+    return lines[keep]
 
 
 # ---------------------------------------------------------------------------
@@ -1019,7 +1121,7 @@ def drop_lines_on_circles(lines, circles, tolerance=3.5):
         return lines
     keep = np.ones(len(lines), dtype=bool)
     for cx, cy, r in circles:
-        tol = max(tolerance, 0.06 * r)
+        tol = max(tolerance, 0.08 * r)
         ends = np.stack(
             (np.hypot(lines[:, 0] - cx, lines[:, 1] - cy),
              np.hypot(lines[:, 2] - cx, lines[:, 3] - cy)))
