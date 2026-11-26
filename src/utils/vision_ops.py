@@ -404,6 +404,17 @@ def prepare_edges(gray, strong_denoise=False, equalize=True, sensitivity=100.0,
         high *= 1.35
         low = 0.4 * high
         edges = cv2.Canny(work, low, high)
+    # Faint edges next to very strong ones (a pale panel on a pale page next to
+    # black strokes) are background, not geometry: drop edges far weaker than the
+    # strong edges of the same image.
+    ys, xs = np.nonzero(edges)
+    if len(xs) > 50:
+        magnitude = np.hypot(gx[ys, xs], gy[ys, xs])
+        strong = float(np.percentile(magnitude, 95))
+        if strong > 8.0 * high:
+            weak = magnitude < 0.12 * strong
+            edges = edges.copy()
+            edges[ys[weak], xs[weak]] = 0
     return EdgeData(gray, work, gx, gy, edges, sigma, high, low)
 
 
@@ -1039,17 +1050,15 @@ def _classify(contour, tolerance=0.02):
     vertices = len(poly)
     pts = poly.reshape(-1, 2).astype(np.float64)
 
-    if solidity > 0.9 and circularity > 0.78 and vertices >= 7 and len(contour) >= 5:
-        (_, _), (w, h), _ang = cv2.fitEllipse(contour)
+    # A true polygon keeps its corner count when the tolerance is tight, a round
+    # outline does not (it needs ever more vertices to follow the curve).
+    hull_perimeter = cv2.arcLength(hull, True)
+    tight = len(cv2.approxPolyDP(hull, 0.003 * hull_perimeter, True))
+    if solidity > 0.9 and tight >= 9 and len(hull) >= 5:
+        (_, _), (w, h), _ang = cv2.fitEllipse(hull)
         fit_area = math.pi * w * h / 4.0
-        if abs(fit_area - area) / (area + _EPS) < 0.06:
+        if abs(fit_area - hull_area) / (hull_area + _EPS) < 0.10:
             return ("circle" if min(w, h) / max(w, h) > 0.9 else "ellipse"), pts
-    if solidity > 0.9 and circularity > 0.82 and vertices >= 7:
-        if len(contour) >= 5:
-            (_, _), (w, h), _ang = cv2.fitEllipse(contour)
-            if min(w, h) / max(w, h) > 0.9:
-                return "circle", pts
-            return "ellipse", pts
     if vertices == 4 and solidity > 0.85:
         angles = [_angle_at(pts[i - 1], pts[i], pts[(i + 1) % 4]) for i in range(4)]
         if all(70 <= a <= 110 for a in angles):
@@ -1088,6 +1097,9 @@ def detect_shapes(ed, cfg=None):
         has_child = hierarchy[0][i][2] != -1
         if not has_parent and has_child:
             continue  # outer rim of an outline; its hole is used instead
+        # Slivers (a stroke or an edge pair, not a shape) are too thin to be one.
+        if min(cv2.minAreaRect(contour)[1]) < 0.02 * d:
+            continue
         classified = _classify(contour, tolerance)
         if classified is None:
             continue

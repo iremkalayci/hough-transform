@@ -442,7 +442,7 @@ class EllipseDetectionConfigs(Configs):
         default_factory=lambda: EdgeSensitivity(value=100.0)
     )
     minSupportPct: MinSupportPct = Field(
-        default_factory=lambda: MinSupportPct(value=70.0)
+        default_factory=lambda: MinSupportPct(value=60.0)
     )
     minAxisPct: MinAxisPct = Field(
         default_factory=lambda: MinAxisPct(value=2.0)
@@ -609,7 +609,7 @@ class LineDetectionExecutor(Config):
     field: Literal["option"] = "option"
 
     class Config:
-        title = "Line Detection (Çizgi)"
+        title = "Line Detection"
         json_schema_extra = {
             "target": {
                 "value": 0
@@ -629,7 +629,7 @@ class CircleDetectionExecutor(Config):
     field: Literal["option"] = "option"
 
     class Config:
-        title = "Circle Detection (Daire)"
+        title = "Circle Detection"
         json_schema_extra = {
             "target": {
                 "value": 0
@@ -649,7 +649,7 @@ class NoiseDetectionExecutor(Config):
     field: Literal["option"] = "option"
 
     class Config:
-        title = "Noise-Robust Detection (Gürültü)"
+        title = "Noise-Robust Detection"
         json_schema_extra = {
             "target": {
                 "value": 0
@@ -669,7 +669,7 @@ class BrokenDetectionExecutor(Config):
     field: Literal["option"] = "option"
 
     class Config:
-        title = "Broken Line Detection (Kopuk)"
+        title = "Broken Line Detection"
         json_schema_extra = {
             "target": {
                 "value": 0
@@ -689,7 +689,7 @@ class PartialEdgeDetectionExecutor(Config):
     field: Literal["option"] = "option"
 
     class Config:
-        title = "Partial Edge Detection (Kısmi kenar)"
+        title = "Partial Edge Detection"
         json_schema_extra = {
             "target": {
                 "value": 0
@@ -709,7 +709,7 @@ class EllipseDetectionExecutor(Config):
     field: Literal["option"] = "option"
 
     class Config:
-        title = "Ellipse Detection (Elips)"
+        title = "Ellipse Detection"
         json_schema_extra = {
             "target": {
                 "value": 0
@@ -729,7 +729,7 @@ class ShapeDetectionExecutor(Config):
     field: Literal["option"] = "option"
 
     class Config:
-        title = "Shape Detection (Şekil tespiti)"
+        title = "Shape Detection"
         json_schema_extra = {
             "target": {
                 "value": 0

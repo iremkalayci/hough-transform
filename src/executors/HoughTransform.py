@@ -271,9 +271,14 @@ class HoughTransform(Capsule):
         for label, polygon, (bx1, by1, bx2, by2) in shapes:
             poly = np.rint(np.asarray(polygon, dtype=np.float64) * inv).astype(np.int32)
             cv2.polylines(output, [poly.reshape(-1, 1, 2)], True, SHAPE_COLOR, thickness, cv2.LINE_AA)
-            cv2.putText(output, label, (int(bx1 * inv), max(12, int(by1 * inv) - 4)),
-                        cv2.FONT_HERSHEY_SIMPLEX, max(0.4, min(height, width) / 900.0),
-                        SHAPE_COLOR, max(1, thickness - 1), cv2.LINE_AA)
+            # Black text with a thin white halo stays readable on any background.
+            text_origin = (int(bx1 * inv), max(12, int(by1 * inv) - 4))
+            text_scale = max(0.4, min(height, width) / 900.0)
+            text_width = max(1, thickness - 1)
+            cv2.putText(output, label, text_origin, cv2.FONT_HERSHEY_SIMPLEX, text_scale,
+                        (255, 255, 255), text_width + 2, cv2.LINE_AA)
+            cv2.putText(output, label, text_origin, cv2.FONT_HERSHEY_SIMPLEX, text_scale,
+                        (0, 0, 0), text_width, cv2.LINE_AA)
             detections.append(self._make_detection(
                 SHAPE_CLASS_ID, label, (bx1 * inv, by1 * inv, bx2 * inv, by2 * inv)))
 
