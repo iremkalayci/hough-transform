@@ -190,7 +190,20 @@ class HoughTransform(Capsule):
             denoise_strength=cfg.get("denoise_strength_pct", 100.0),
         )
 
-        if task in ("LineDetection", "NoiseDetection", "BrokenDetection", "PartialEdgeDetection"):
+        if task == "BrokenDetection":
+            # Dash-level detection: every dash is found as a blob, then dashes are
+            # chained into lines and circles. Solid circles are added as well.
+            lines, dashed_circles = vision_ops.detect_dashed(ed, cfg=cfg)
+            circles = vision_ops.merge_circles(
+                vision_ops.detect_circles(ed, "full", fast=True), dashed_circles)
+            # Solid strokes that touch other strokes form one big blob and have no
+            # separate dashes; look for them in the edges the dashes do not explain.
+            rest = ed.without_lines(lines, width=max(6.0, 0.012 * ed.dimension))
+            rest = rest.without_circles(circles, tolerance=max(6.0, 0.012 * ed.dimension))
+            solid_lines = vision_ops.detect_lines(rest, broken=False, cfg=cfg)
+            if len(solid_lines):
+                lines = np.vstack((np.asarray(lines).reshape(-1, 4), solid_lines))
+        elif task in ("LineDetection", "NoiseDetection", "PartialEdgeDetection"):
             broken = task in ("BrokenDetection", "PartialEdgeDetection")
             # Explain away clear circles first, so rim chords are not reported as lines.
             solid = vision_ops.detect_circles(ed, "full")

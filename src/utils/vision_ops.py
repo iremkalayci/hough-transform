@@ -658,6 +658,221 @@ def detect_lines(ed, broken=False, cfg=None):
 
 
 # ---------------------------------------------------------------------------
+# Dashed lines and dashed circles (dash-level detection)
+# ---------------------------------------------------------------------------
+
+def _find_dashes(ed, cfg=None):
+    """Every dash, dot or short stroke of the image as ``(cx, cy, length, width, theta)``.
+
+    A dash is a connected blob that differs from its local background (a large
+    median filter), so dark-on-light and light-on-dark both work and thick
+    strokes need no edge pairing.
+    """
+    d = ed.dimension
+    gray = ed.gray
+    kernel = int(np.clip(round(0.08 * d), 15, 101)) | 1
+    background = cv2.medianBlur(gray, kernel)
+    diff = cv2.absdiff(cv2.GaussianBlur(gray, (3, 3), 0.8), background)
+    sensitivity = max(5.0, _get(cfg, "edge_sensitivity_pct", 100.0)) / 100.0
+    strong = float(np.percentile(diff, 99.5))
+    threshold = max(18.0, 6.0 * ed.sigma, 0.35 * strong) / sensitivity
+    mask = (diff > threshold).astype(np.uint8) * 255
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    contours, hierarchy = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    dashes = []
+    if hierarchy is None:
+        return dashes
+    min_area = max(12.0, (0.004 * d) ** 2)
+    for i, contour in enumerate(contours):
+        if hierarchy[0][i][3] != -1 or hierarchy[0][i][2] != -1:
+            continue  # holes, and rings (a closed outline is not a dash)
+        if cv2.contourArea(contour) < min_area:
+            continue
+        (cx, cy), (w, h), angle = cv2.minAreaRect(contour)
+        length, width = max(w, h), min(w, h)
+        if width > 0.12 * d:
+            continue
+        theta = math.radians(angle if w >= h else angle + 90.0)
+        dashes.append((cx, cy, length, max(width, 1.0), theta))
+    return dashes
+
+
+def _axis_gap(theta_a, theta_b):
+    delta = abs(theta_a - theta_b) % math.pi
+    return min(delta, math.pi - delta)
+
+
+def detect_dashed(ed, cfg=None):
+    """Dashed (or solid) straight lines and dashed circles, found dash by dash.
+
+    1. Find every dash (``_find_dashes``).
+    2. Lines: repeatedly take the straight line through the most dashes whose
+       own direction agrees with it, split it where the gap is larger than
+       ``max_gap`` and keep chains that are long and filled enough.
+    3. Circles: of the dashes left over, repeatedly take the circle through the
+       most dash centres whose direction is tangent to it.
+    Returns ``(lines (N,4), circles (M,3))``.
+    """
+    d = ed.dimension
+    dashes = _find_dashes(ed, cfg)
+    empty_lines, empty_circles = np.empty((0, 4), dtype=np.int32), np.empty((0, 3))
+    if len(dashes) < 3:
+        return empty_lines, empty_circles
+    data = np.asarray(dashes, dtype=np.float64)
+    cx, cy, length, width, theta = data.T
+    elongated = length >= 1.8 * width
+    # Blobs far thicker than the other strokes are dashes fused with something
+    # crossing them; their direction means nothing, so they are not used.
+    typical_width = float(np.median(width))
+    fused = width > 2.2 * typical_width
+    elongated &= ~fused
+    count = len(data)
+    min_length = max(6.0, _get(cfg, "min_line_length_pct", 10.0) / 100.0 * d)
+    max_gap = max(2.0, _get(cfg, "max_gap_pct", 20.0) / 100.0 * d)
+    min_duty = _get(cfg, "min_dash_fill_pct", 22.0) / 100.0
+    free = ~fused
+    lines = []
+    line_members = []
+    max_lines = int(_get(cfg, "max_lines", 200))
+
+    pair_i, pair_j = np.triu_indices(count, 1)
+    usable = elongated[pair_i] & elongated[pair_j]
+    pair_i, pair_j = pair_i[usable], pair_j[usable]
+    link = np.arctan2(cy[pair_j] - cy[pair_i], cx[pair_j] - cx[pair_i])
+    agree = np.array([_axis_gap(a, b) for a, b in zip(link, theta[pair_i])]) <= math.radians(7) \
+        if len(link) else np.zeros(0, dtype=bool)
+    if len(link):
+        agree &= np.array([_axis_gap(a, b) for a, b in zip(link, theta[pair_j])]) <= math.radians(7)
+    pair_i, pair_j, link = pair_i[agree], pair_j[agree], link[agree]
+
+    for _ in range(max_lines):
+        alive = free[pair_i] & free[pair_j]
+        if not alive.any():
+            break
+        best, best_members, best_spread = 0, None, 0.0
+        for i, j, direction in zip(pair_i[alive], pair_j[alive], link[alive]):
+            ux, uy = math.cos(direction), math.sin(direction)
+            offset = np.abs((cx - cx[i]) * -uy + (cy - cy[i]) * ux)
+            near = free & (offset <= np.maximum(3.0, 0.5 * width))
+            near &= ~elongated | (np.array([_axis_gap(direction, a) for a in theta]) <= math.radians(15))
+            members = int(near.sum())
+            spread = float(offset[near].sum())
+            if members > best or (members == best and spread < best_spread):
+                best, best_members, best_spread = members, near.copy(), spread
+        if best_members is None or best < 3:
+            # a single long solid stroke is also a line
+            single = np.nonzero(free & elongated & (length >= min_length))[0]
+            if not len(single):
+                break
+            k = int(single[np.argmax(length[single])])
+            ux, uy = math.cos(theta[k]), math.sin(theta[k])
+            lines.append((cx[k] - ux * length[k] / 2, cy[k] - uy * length[k] / 2,
+                          cx[k] + ux * length[k] / 2, cy[k] + uy * length[k] / 2))
+            line_members.append(np.array([k]))
+            free[k] = False
+            continue
+        # re-fit on the members and collect again: the pair that seeded the
+        # search is slightly off, which matters over a long line
+        for _ in range(3):
+            index = np.nonzero(best_members)[0]
+            points = np.column_stack((cx[index], cy[index])).astype(np.float32)
+            vx, vy, x0, y0 = [float(v[0]) for v in cv2.fitLine(points, cv2.DIST_L2, 0, 0.01, 0.01)]
+            offset = np.abs((cx - x0) * -vy + (cy - y0) * vx)
+            direction = math.atan2(vy, vx)
+            near = free & (offset <= np.maximum(3.0, 0.5 * width))
+            near &= ~elongated | (np.array([_axis_gap(direction, a) for a in theta]) <= math.radians(15))
+            if int(near.sum()) <= int(best_members.sum()) or (near == best_members).all():
+                break
+            best_members = near
+        index = np.nonzero(best_members)[0]
+        points = np.column_stack((cx[index], cy[index])).astype(np.float32)
+        vx, vy, x0, y0 = [float(v[0]) for v in cv2.fitLine(points, cv2.DIST_L2, 0, 0.01, 0.01)]
+        along = (cx[index] - x0) * vx + (cy[index] - y0) * vy
+        order = np.argsort(along)
+        index, along = index[order], along[order]
+        half = np.where(elongated[index], length[index], np.minimum(length[index], width[index])) / 2.0
+        starts, ends = along - half, along + half
+        # a chain breaks at a gap much larger than the gaps seen inside it
+        inner = np.maximum(starts[1:] - ends[:-1], 0.0)
+        typical = float(np.median(inner)) if len(inner) else 0.0
+        split_gap = min(max_gap, max(8.0 * typical, 5.0 * float(np.median(half * 2.0)), 40.0))
+        chain_start = 0
+        for k in range(1, len(index) + 1):
+            if k == len(index) or starts[k] - ends[k - 1] > split_gap:
+                members = index[chain_start:k]
+                s0, s1 = starts[chain_start], ends[k - 1]
+                span = s1 - s0
+                covered = float((ends[chain_start:k] - starts[chain_start:k]).sum())
+                if span >= min_length and covered / span >= min_duty and (len(members) >= 3 or len(members) == 1):
+                    lines.append((x0 + s0 * vx, y0 + s0 * vy, x0 + s1 * vx, y0 + s1 * vy))
+                    line_members.append(members)
+                chain_start = k
+        free[index] = False
+
+    # Dashes lying on an accepted line are explained; the rest may form circles.
+    circles = []
+    min_r = max(2.0, _get(cfg, "min_radius_pct", 1.5) / 100.0 * d)
+    max_r = _get(cfg, "max_radius_pct", 50.0) / 100.0 * d
+    min_cover = _get(cfg, "min_support_pct", 40.0) / 100.0
+    rng = np.random.default_rng(1)
+    for _ in range(int(_get(cfg, "max_circles", 60))):
+        pool = np.nonzero(free)[0]
+        if len(pool) < 5:
+            break
+        best, best_set, best_fit = 0, None, None
+        for _try in range(600):
+            a, b, c = rng.choice(pool, 3, replace=False)
+            fit = _circle_through((cx[a], cy[a]), (cx[b], cy[b]), (cx[c], cy[c]))
+            if fit is None or not (min_r <= fit[2] <= max_r):
+                continue
+            ccx, ccy, r = fit
+            radius = np.hypot(cx - ccx, cy - ccy)
+            tangent = np.arctan2(cy - ccy, cx - ccx) + math.pi / 2.0
+            inside = free & (np.abs(radius - r) <= max(3.0, 0.04 * r))
+            inside &= ~elongated | (np.array([_axis_gap(t, a2) for t, a2 in zip(tangent, theta)]) <= math.radians(20))
+            members = int(inside.sum())
+            if members > best:
+                best, best_set, best_fit = members, inside.copy(), fit
+        if best < 5:
+            break
+        index = np.nonzero(best_set)[0]
+        refined = _fit_circle(cx[index], cy[index]) or best_fit
+        # the refined circle must still hold (almost) the same dashes
+        again = free & (np.abs(np.hypot(cx - refined[0], cy - refined[1]) - refined[2])
+                        <= max(3.0, 0.03 * refined[2]))
+        if int((again & best_set).sum()) < 0.8 * len(index):
+            continue
+        angles = np.sort(np.mod(np.arctan2(cy[index] - refined[1], cx[index] - refined[0]), 2 * math.pi))
+        gaps = np.diff(np.concatenate((angles, [angles[0] + 2 * math.pi])))
+        if 1.0 - float(gaps.max()) / (2 * math.pi) >= min_cover or float(gaps.max()) < math.pi:
+            circles.append(refined)
+        free[index] = False
+
+    if circles and lines:
+        # A chain whose dashes all sit on circle rims (one circle, or a jump from
+        # one rim to the next) is not a straight line.
+        kept = []
+        for line, members in zip(lines, line_members):
+            on_rim = False
+            if len(members) >= 2:
+                near_rim = np.zeros(len(members), dtype=bool)
+                for ccx, ccy, cr in circles:
+                    dist = np.hypot(cx[members] - ccx, cy[members] - ccy)
+                    near_rim |= np.abs(dist - cr) <= max(4.0, 0.05 * cr)
+                on_rim = float(near_rim.mean()) >= 0.7
+            if not on_rim:
+                kept.append(line)
+        lines = kept
+
+    lines_array = np.asarray(lines, dtype=np.float64).reshape(-1, 4)
+    if len(lines_array):
+        lines_array[:, (0, 2)] = np.clip(lines_array[:, (0, 2)], 0, ed.width - 1)
+        lines_array[:, (1, 3)] = np.clip(lines_array[:, (1, 3)], 0, ed.height - 1)
+        lines_array = np.rint(lines_array).astype(np.int32)
+    return lines_array.reshape(-1, 4), np.asarray(circles, dtype=np.float64).reshape(-1, 3)
+
+
+# ---------------------------------------------------------------------------
 # Circles (full, broken and partial arcs)
 # ---------------------------------------------------------------------------
 
@@ -712,7 +927,7 @@ def _gradient_vote_candidates(ed, r_min, r_max, limit=80):
     return found
 
 
-def _circle_candidates(ed, min_r, max_r):
+def _circle_candidates(ed, min_r, max_r, fast=False):
     d = ed.dimension
     min_r, max_r = max(2, int(min_r)), int(max_r)
     min_dist = max(6.0, 0.03 * d)
@@ -721,9 +936,9 @@ def _circle_candidates(ed, min_r, max_r):
     runs = (
         (cv2.HOUGH_GRADIENT_ALT, dict(dp=1.5, param1=300, param2=0.80)),
         (cv2.HOUGH_GRADIENT_ALT, dict(dp=1.5, param1=300, param2=0.65)),
-        (cv2.HOUGH_GRADIENT, dict(dp=1.0, param1=max(40.0, ed.high * 0.8), param2=16)),
+        (cv2.HOUGH_GRADIENT, dict(dp=1.0, param1=max(40.0, ed.high * 2.0), param2=16)),
     )
-    for method, kw in runs:
+    for method, kw in (runs[:2] if fast else runs[:2]):
         try:
             out = cv2.HoughCircles(smooth, method, minDist=min_dist, minRadius=min_r,
                                    maxRadius=max_r, **kw)
@@ -731,6 +946,19 @@ def _circle_candidates(ed, min_r, max_r):
             out = None
         if out is not None:
             found.extend((float(x), float(y), float(r)) for x, y, r in out.reshape(-1, 3)[:150])
+    if not fast:
+        # The classic voting pass is slow on large noisy images (it runs its own
+        # Canny), so it works on a half-size copy; refinement restores precision.
+        method, kw = runs[2]
+        half = cv2.resize(smooth, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA)
+        try:
+            out = cv2.HoughCircles(half, method, minDist=max(3.0, min_dist / 2.0),
+                                   minRadius=max(1, min_r // 2), maxRadius=max(2, max_r // 2), **kw)
+        except cv2.error:
+            out = None
+        if out is not None:
+            found.extend((2.0 * float(x), 2.0 * float(y), 2.0 * float(r))
+                         for x, y, r in out.reshape(-1, 3)[:150])
     found.extend(_gradient_vote_candidates(ed, min_r, max_r))
     return found
 
@@ -763,7 +991,7 @@ def _arc_stats(ed, cx, cy, r, samples=240):
     return ratio, coverage, min(best, samples) / samples
 
 
-def detect_circles(ed, mode="full", cfg=None):
+def detect_circles(ed, mode="full", cfg=None, fast=False):
     """Circles via Hough voting, then verified on the edge map.
 
     mode: ``full`` (closed circles), ``broken`` (dashed rims) or ``partial``
@@ -780,7 +1008,7 @@ def detect_circles(ed, mode="full", cfg=None):
     max_r = _get(cfg, "max_radius_pct", 50.0) / 100.0 * d
     max_circles = int(_get(cfg, "max_circles", 60))
     accepted = []
-    for cx, cy, r in _circle_candidates(ed, min_r, max_r):
+    for cx, cy, r in _circle_candidates(ed, min_r, max_r, fast=fast):
         fit = _refine_circle(ed, cx, cy, r)
         if fit is None:
             continue
@@ -1194,10 +1422,16 @@ def drop_circles_on_lines(ed, circles, lines, max_fraction=0.35):
     lines = np.asarray(lines, dtype=np.float64).reshape(-1, 4)
     if not len(circles) or not len(lines) or ed.count == 0:
         return circles
-    mask = np.zeros((ed.height, ed.width), dtype=np.uint8)
+    xs_i, ys_i = ed.xs.astype(int), ed.ys.astype(int)
+    # An edge pixel only counts as "on a line" when its gradient is perpendicular
+    # to that line; a line that merely crosses a rim does not explain the rim.
+    on_line = np.zeros(ed.count, dtype=bool)
     for x1, y1, x2, y2 in lines:
+        mask = np.zeros((ed.height, ed.width), dtype=np.uint8)
         cv2.line(mask, (int(round(x1)), int(round(y1))), (int(round(x2)), int(round(y2))), 255, 5)
-    on_line = mask[ed.ys.astype(int), ed.xs.astype(int)] > 0
+        length = math.hypot(x2 - x1, y2 - y1) + _EPS
+        nx, ny = -(y2 - y1) / length, (x2 - x1) / length
+        on_line |= (mask[ys_i, xs_i] > 0) & (np.abs(ed.ux * nx + ed.uy * ny) >= 0.9)
     keep = []
     for cx, cy, r in circles:
         dx, dy = ed.xs - cx, ed.ys - cy
