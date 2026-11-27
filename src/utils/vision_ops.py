@@ -561,7 +561,7 @@ def detect_lines(ed, broken=False, cfg=None):
 
     # defaults: standard 8 % length / 1.5 % gap; broken 10 % / 20 %, 22 % visible
     min_length = max(6.0, _get(cfg, "min_line_length_pct", 10.0 if broken else 8.0) / 100.0 * d)
-    max_gap = max(2.0, _get(cfg, "max_gap_pct", 20.0 if broken else 1.5) / 100.0 * d)
+    max_gap = max(2.0, _get(cfg, "max_gap_pct", 30.0 if broken else 1.5) / 100.0 * d)
     max_lines = int(_get(cfg, "max_lines", 200))
     if broken:
         min_duty = _get(cfg, "min_dash_fill_pct", 22.0) / 100.0
@@ -677,18 +677,18 @@ def _find_dashes(ed, cfg=None):
     strong = float(np.percentile(diff, 99.5))
     threshold = max(18.0, 6.0 * ed.sigma, 0.35 * strong) / sensitivity
     mask = (diff > threshold).astype(np.uint8) * 255
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     contours, hierarchy = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
     dashes = []
     if hierarchy is None:
         return dashes
-    min_area = max(12.0, (0.004 * d) ** 2)
+    min_area = max(8.0, (0.004 * d) ** 2)
     for i, contour in enumerate(contours):
         if hierarchy[0][i][3] != -1 or hierarchy[0][i][2] != -1:
             continue  # holes, and rings (a closed outline is not a dash)
-        if cv2.contourArea(contour) < min_area:
-            continue
         (cx, cy), (w, h), angle = cv2.minAreaRect(contour)
+        # contour area of a 2 px wide dash is tiny, so count the pixels it spans
+        if (max(w, h) + 1.0) * (min(w, h) + 1.0) < min_area:
+            continue
         length, width = max(w, h), min(w, h)
         if width > 0.12 * d:
             continue
@@ -728,33 +728,41 @@ def detect_dashed(ed, cfg=None):
     elongated &= ~fused
     count = len(data)
     min_length = max(6.0, _get(cfg, "min_line_length_pct", 10.0) / 100.0 * d)
-    max_gap = max(2.0, _get(cfg, "max_gap_pct", 20.0) / 100.0 * d)
+    max_gap = max(2.0, _get(cfg, "max_gap_pct", 30.0) / 100.0 * d)
     min_duty = _get(cfg, "min_dash_fill_pct", 22.0) / 100.0
     free = ~fused
     lines = []
     line_members = []
     max_lines = int(_get(cfg, "max_lines", 200))
 
+    # Any two dashes can start a line. A dash that is clearly elongated must also
+    # point along the link; a dot (not elongated) has no direction to check.
     pair_i, pair_j = np.triu_indices(count, 1)
-    usable = elongated[pair_i] & elongated[pair_j]
+    usable = ~fused[pair_i] & ~fused[pair_j]
     pair_i, pair_j = pair_i[usable], pair_j[usable]
     link = np.arctan2(cy[pair_j] - cy[pair_i], cx[pair_j] - cx[pair_i])
-    agree = np.array([_axis_gap(a, b) for a, b in zip(link, theta[pair_i])]) <= math.radians(7) \
-        if len(link) else np.zeros(0, dtype=bool)
-    if len(link):
-        agree &= np.array([_axis_gap(a, b) for a, b in zip(link, theta[pair_j])]) <= math.radians(7)
+
+    def axis_gap(a, b):
+        return np.abs((a - b + math.pi / 2.0) % math.pi - math.pi / 2.0)
+
+    agree = (~elongated[pair_i] | (axis_gap(link, theta[pair_i]) <= math.radians(7))) \
+        & (~elongated[pair_j] | (axis_gap(link, theta[pair_j]) <= math.radians(7)))
     pair_i, pair_j, link = pair_i[agree], pair_j[agree], link[agree]
+    picker = np.random.default_rng(0)
 
     for _ in range(max_lines):
         alive = free[pair_i] & free[pair_j]
         if not alive.any():
             break
         best, best_members, best_spread = 0, None, 0.0
-        for i, j, direction in zip(pair_i[alive], pair_j[alive], link[alive]):
+        seeds = np.nonzero(alive)[0]
+        if len(seeds) > 3000:  # many dots: a sample of the pairs is enough
+            seeds = picker.choice(seeds, 3000, replace=False)
+        for i, j, direction in zip(pair_i[seeds], pair_j[seeds], link[seeds]):
             ux, uy = math.cos(direction), math.sin(direction)
             offset = np.abs((cx - cx[i]) * -uy + (cy - cy[i]) * ux)
             near = free & (offset <= np.maximum(3.0, 0.5 * width))
-            near &= ~elongated | (np.array([_axis_gap(direction, a) for a in theta]) <= math.radians(15))
+            near &= ~elongated | (axis_gap(direction, theta) <= math.radians(15))
             members = int(near.sum())
             spread = float(offset[near].sum())
             if members > best or (members == best and spread < best_spread):
@@ -780,7 +788,7 @@ def detect_dashed(ed, cfg=None):
             offset = np.abs((cx - x0) * -vy + (cy - y0) * vx)
             direction = math.atan2(vy, vx)
             near = free & (offset <= np.maximum(3.0, 0.5 * width))
-            near &= ~elongated | (np.array([_axis_gap(direction, a) for a in theta]) <= math.radians(15))
+            near &= ~elongated | (axis_gap(direction, theta) <= math.radians(15))
             if int(near.sum()) <= int(best_members.sum()) or (near == best_members).all():
                 break
             best_members = near
@@ -803,7 +811,8 @@ def detect_dashed(ed, cfg=None):
                 s0, s1 = starts[chain_start], ends[k - 1]
                 span = s1 - s0
                 covered = float((ends[chain_start:k] - starts[chain_start:k]).sum())
-                if span >= min_length and covered / span >= min_duty and (len(members) >= 3 or len(members) == 1):
+                needed = 3 if elongated[members].any() else 5  # dots alone need more evidence
+                if span >= min_length and covered / span >= min_duty and (len(members) >= needed or len(members) == 1):
                     lines.append((x0 + s0 * vx, y0 + s0 * vy, x0 + s1 * vx, y0 + s1 * vy))
                     line_members.append(members)
                 chain_start = k

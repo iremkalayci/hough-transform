@@ -412,7 +412,7 @@ class BrokenDetectionConfigs(Configs):
         default_factory=lambda: MinLineLengthPct(value=10.0)
     )
     maxGapPct: MaxGapPct = Field(
-        default_factory=lambda: MaxGapPct(value=20.0)
+        default_factory=lambda: MaxGapPct(value=30.0)
     )
     minDashFillPct: MinDashFillPct = Field(
         default_factory=lambda: MinDashFillPct(value=22.0)
