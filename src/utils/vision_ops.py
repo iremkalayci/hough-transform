@@ -1058,7 +1058,14 @@ def _classify(contour, tolerance=0.02):
         (_, _), (w, h), _ang = cv2.fitEllipse(hull)
         fit_area = math.pi * w * h / 4.0
         if abs(fit_area - hull_area) / (hull_area + _EPS) < 0.10:
-            return ("circle" if min(w, h) / max(w, h) > 0.9 else "ellipse"), pts
+            # Return the fitted outline itself so a round shape is drawn round,
+            # not as the many-sided polygon used to classify it.
+            (ecx, ecy), (ew, eh), eang = cv2.fitEllipse(hull)
+            outline = cv2.ellipse2Poly((int(round(ecx)), int(round(ecy))),
+                                       (max(1, int(round(ew / 2))), max(1, int(round(eh / 2)))),
+                                       int(round(eang)), 0, 360, 5)
+            return ("circle" if min(w, h) / max(w, h) > 0.9 else "ellipse"), \
+                outline.reshape(-1, 2).astype(np.float64)
     if vertices == 4 and solidity > 0.85:
         angles = [_angle_at(pts[i - 1], pts[i], pts[(i + 1) % 4]) for i in range(4)]
         if all(70 <= a <= 110 for a in angles):
@@ -1115,6 +1122,43 @@ def detect_shapes(ed, cfg=None):
             continue
         kept.append((label, polygon, box))
     return kept[:max_shapes]
+
+
+def refine_round_shapes(shapes, circles, ellipses):
+    """Give round shapes the outline found by the circle / ellipse detectors.
+
+    A shape is called round by ``_classify``; its outline is then taken from the
+    best matching result of ``detect_circles`` / ``detect_ellipses`` (the same
+    functions the Circle and Ellipse executors use) when one overlaps it.
+    """
+    circles = np.asarray(circles, dtype=np.float64).reshape(-1, 3)
+    refined = []
+    for label, polygon, box in shapes:
+        if label not in ("circle", "ellipse"):
+            refined.append((label, polygon, box))
+            continue
+        best, outline = 0.3, None
+        for cx, cy, r in circles:
+            overlap = _iou(box, (cx - r, cy - r, cx + r, cy + r))
+            if overlap > best:
+                best = overlap
+                outline = cv2.ellipse2Poly((int(round(cx)), int(round(cy))),
+                                           (max(1, int(round(r))), max(1, int(round(r)))),
+                                           0, 0, 360, 5)
+        for ellipse in ellipses:
+            (cx, cy), (w, h), angle = ellipse
+            corners = cv2.boxPoints(ellipse)
+            overlap = _iou(box, (corners[:, 0].min(), corners[:, 1].min(),
+                                 corners[:, 0].max(), corners[:, 1].max()))
+            if overlap > best:
+                best = overlap
+                outline = cv2.ellipse2Poly((int(round(cx)), int(round(cy))),
+                                           (max(1, int(round(w / 2))), max(1, int(round(h / 2)))),
+                                           int(round(angle)), 0, 360, 5)
+        if outline is not None:
+            polygon = outline.reshape(-1, 2).astype(np.float64)
+        refined.append((label, polygon, box))
+    return refined
 
 
 def _iou(a, b):

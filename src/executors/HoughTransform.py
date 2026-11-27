@@ -219,11 +219,36 @@ class HoughTransform(Capsule):
             ellipses = vision_ops.detect_ellipses(ed, cfg=cfg)
         elif task == "ShapeDetection":
             shapes = vision_ops.detect_shapes(ed, cfg=cfg)
+            if any(item[0] in ("circle", "ellipse") for item in shapes):
+                shapes = vision_ops.refine_round_shapes(
+                    shapes, vision_ops.detect_circles(ed, "full"), vision_ops.detect_ellipses(ed))
 
         if len(lines) and len(circles):
             lines = vision_ops.drop_lines_on_circles(lines, circles)
             circles = vision_ops.drop_circles_on_lines(ed, circles, lines)
         return lines, circles, ellipses, shapes
+
+    def _add_colour_shapes(self, frame, size, shapes, cfg):
+        """Add shapes that only differ from the background by colour.
+
+        A yellow shape on a light grey page has almost the same brightness as
+        the page, so the grayscale edge map misses it. The colourfulness of each
+        pixel (max - min of the channels) shows it clearly, so the detector runs
+        a second time on that image and keeps the shapes the first pass missed.
+        """
+        if frame.ndim != 3 or frame.shape[2] < 3:
+            return shapes
+        colour = frame[:, :, :3].max(axis=2).astype(np.int16) - frame[:, :, :3].min(axis=2)
+        colour = np.clip(colour, 0, 255).astype(np.uint8)
+        if int(colour.max()) < 40:
+            return shapes
+        colour = cv2.resize(colour, (size[1], size[0]), interpolation=cv2.INTER_AREA)
+        extra = self.analyze(colour, cfg)[3]
+        merged = list(shapes)
+        for item in extra:
+            if all(vision_ops._iou(item[2], kept[2]) < 0.5 for kept in merged):
+                merged.append(item)
+        return merged
 
     def detect(self, frame, cfg=None):
         """Detect on ``frame`` (uint8, any channel layout); return annotated BGR + detections."""
@@ -235,6 +260,8 @@ class HoughTransform(Capsule):
             work = cv2.resize(gray, (int(round(width * scale)), int(round(height * scale))),
                               interpolation=cv2.INTER_AREA)
         lines, circles, ellipses, shapes = self.analyze(work, cfg)
+        if self.task == "ShapeDetection":
+            shapes = self._add_colour_shapes(frame, work.shape[:2], shapes, cfg)
         inv = 1.0 / scale
 
         output = self._to_color(frame)
