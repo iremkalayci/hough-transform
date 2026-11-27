@@ -210,7 +210,7 @@ class HoughTransform(Capsule):
             # Partial edges reuse the broken-line gap rules (fixed: they are part of
             # what makes an edge "partial", not a user preference).
             line_cfg = cfg if task != "PartialEdgeDetection" else dict(
-                cfg, min_dash_fill_pct=22.0, max_gap_pct=20.0)
+                cfg, min_dash_fill_pct=22.0, max_gap_pct=40.0)
             lines = vision_ops.detect_lines(ed.without_circles(solid), broken=broken, cfg=line_cfg)
             circles = solid
             if task in ("BrokenDetection", "PartialEdgeDetection"):

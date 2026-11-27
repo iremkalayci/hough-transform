@@ -546,6 +546,20 @@ def _hough_line_candidates(edges, threshold, limit):
     return [(float(r), float(t)) for r, t in found.reshape(-1, 2)[:limit]]
 
 
+def _stroke_width(ed):
+    """Typical thickness of the strokes (the minority colour) in pixels, 0 if unknown."""
+    _, binary = cv2.threshold(ed.gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    ink = binary == 255 if np.count_nonzero(binary) < 0.5 * binary.size else binary == 0
+    # only line drawings have strokes; large dark areas (photos) are not strokes
+    if np.count_nonzero(ink) < 50 or np.count_nonzero(ink) > 0.15 * ink.size:
+        return 0.0
+    dist = cv2.distanceTransform(ink.astype(np.uint8), cv2.DIST_L2, 3)
+    ridge = (dist >= cv2.dilate(dist, np.ones((3, 3), np.uint8))) & (dist >= 1.0)
+    if np.count_nonzero(ridge) < 20:
+        return 0.0
+    return float(min(2.0 * np.median(dist[ridge]), 0.03 * ed.dimension))
+
+
 def detect_lines(ed, broken=False, cfg=None):
     """Detect straight lines.
 
@@ -562,6 +576,9 @@ def detect_lines(ed, broken=False, cfg=None):
     # defaults: standard 8 % length / 1.5 % gap; broken 10 % / 20 %, 22 % visible
     min_length = max(6.0, _get(cfg, "min_line_length_pct", 10.0 if broken else 8.0) / 100.0 * d)
     max_gap = max(2.0, _get(cfg, "max_gap_pct", 30.0 if broken else 1.5) / 100.0 * d)
+    stroke = _stroke_width(ed)
+    # a line crossing a thick stroke leaves a gap about as wide as that stroke
+    max_gap = max(max_gap, 3.0 * stroke)
     max_lines = int(_get(cfg, "max_lines", 200))
     if broken:
         min_duty = _get(cfg, "min_dash_fill_pct", 22.0) / 100.0
@@ -649,7 +666,8 @@ def detect_lines(ed, broken=False, cfg=None):
     merged = merge_segments(
         np.asarray(segments, dtype=np.float64),
         max_gap=max_gap if broken else max(max_gap, 0.0),
-        merge_distance=max(3.0, (0.025 if broken else 0.012) * d),
+        # both edges of a thick stroke are one line: merge across its thickness
+        merge_distance=max(3.0, (0.025 if broken else 0.012) * d, 1.3 * stroke),
     )
     merged = merged[:max_lines]
     merged[:, (0, 2)] = np.clip(merged[:, (0, 2)], 0, ed.width - 1)
